@@ -1,23 +1,21 @@
 """
-Canonical list of OpenRouter models offered in CLI and setup wizards.
+Canonical list of OCI GenAI models offered in CLI and setup wizards.
 
 Add, remove, or reorder entries here — both `hermes setup` and
 `hermes` provider-selection will pick up the change automatically.
 """
 
 # (model_id, display description shown in menus)
-OPENROUTER_MODELS: list[tuple[str, str]] = [
-    ("anthropic/claude-opus-4.6",       "recommended"),
-    ("anthropic/claude-sonnet-4.5",     ""),
-    ("anthropic/claude-opus-4.5",       ""),
-    ("openai/gpt-5.2",                  ""),
-    ("openai/gpt-5.3-codex",            ""),
-    ("google/gemini-3-pro-preview",     ""),
-    ("google/gemini-3-flash-preview",   ""),
-    ("z-ai/glm-4.7",                    ""),
-    ("moonshotai/kimi-k2.5",            ""),
-    ("minimax/minimax-m2.1",            ""),
+OCI_GENAI_MODELS: list[tuple[str, str]] = [
+    ("xai.grok-3-mini",                                   "recommended"),
+    ("xai.grok-3",                                        ""),
+    ("meta.llama-3.3-70b-instruct",                       ""),
+    ("meta.llama-4-maverick-17b-128e-instruct-fp8",       ""),
+    ("meta.llama-4-scout-17b-16e-instruct-fp8",           ""),
 ]
+
+# Legacy alias for code that references OPENROUTER_MODELS
+OPENROUTER_MODELS = OCI_GENAI_MODELS
 
 
 def model_ids() -> list[str]:
