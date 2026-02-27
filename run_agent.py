@@ -71,6 +71,7 @@ from tools.browser_tool import cleanup_browser
 import requests
 
 from hermes_constants import OPENROUTER_BASE_URL, OPENROUTER_MODELS_URL
+from oci_client import create_oci_client, get_oci_base_url, DEFAULT_PROFILE, DEFAULT_COMPARTMENT_ID, DEFAULT_REGION
 
 # Agent internals extracted to agent/ package for modularity
 from agent.prompt_builder import (
@@ -106,7 +107,7 @@ class AIAgent:
         self,
         base_url: str = None,
         api_key: str = None,
-        model: str = "anthropic/claude-opus-4.6",  # OpenRouter format
+        model: str = "xai.grok-3-mini",  # OCI GenAI model
         max_iterations: int = 60,  # Default tool-calling iterations
         tool_delay: float = 1.0,
         enabled_toolsets: List[str] = None,
@@ -138,7 +139,7 @@ class AIAgent:
         Args:
             base_url (str): Base URL for the model API (optional)
             api_key (str): API key for authentication (optional, uses env var if not provided)
-            model (str): Model name to use (default: "anthropic/claude-opus-4.6")
+            model (str): Model name to use (default: "xai.grok-3-mini")
             max_iterations (int): Maximum number of tool calling iterations (default: 60)
             tool_delay (float): Delay between tool calls in seconds (default: 1.0)
             enabled_toolsets (List[str]): Only enable tools from these toolsets (optional)
@@ -181,8 +182,8 @@ class AIAgent:
         self.log_prefix_chars = log_prefix_chars
         self.log_prefix = f"{log_prefix} " if log_prefix else ""
         # Store effective base URL for feature detection (prompt caching, reasoning, etc.)
-        # When no base_url is provided, the client defaults to OpenRouter, so reflect that here.
-        self.base_url = base_url or OPENROUTER_BASE_URL
+        # When no base_url is provided, the client defaults to OCI GenAI.
+        self.base_url = base_url or get_oci_base_url(os.getenv("OCI_REGION", DEFAULT_REGION))
         self.tool_progress_callback = tool_progress_callback
         self.clarify_callback = clarify_callback
         self._last_reported_tool = None  # Track for "new tool" mode
@@ -210,13 +211,9 @@ class AIAgent:
         self.reasoning_config = reasoning_config  # None = use default (xhigh for OpenRouter)
         self.prefill_messages = prefill_messages or []  # Prefilled conversation turns
         
-        # Anthropic prompt caching: auto-enabled for Claude models via OpenRouter.
-        # Reduces input costs by ~75% on multi-turn conversations by caching the
-        # conversation prefix. Uses system_and_3 strategy (4 breakpoints).
-        is_openrouter = "openrouter" in self.base_url.lower()
-        is_claude = "claude" in self.model.lower()
-        self._use_prompt_caching = is_openrouter and is_claude
-        self._cache_ttl = "5m"  # Default 5-minute TTL (1.25x write cost)
+        # Prompt caching: disabled for OCI GenAI (Anthropic cache control not supported).
+        self._use_prompt_caching = False  # OCI GenAI does not support Anthropic cache control
+        self._cache_ttl = "5m"  # Kept for interface compatibility
         
         # Configure logging
         if self.verbose_logging:
@@ -265,46 +262,42 @@ class AIAgent:
                 ]:
                     logging.getLogger(quiet_logger).setLevel(logging.ERROR)
         
-        # Initialize OpenAI client - defaults to OpenRouter
-        client_kwargs = {}
-        
-        # Default to OpenRouter if no base_url provided
-        if base_url:
-            client_kwargs["base_url"] = base_url
-        else:
-            client_kwargs["base_url"] = OPENROUTER_BASE_URL
-        
-        # Handle API key - OpenRouter is the primary provider
-        if api_key:
-            client_kwargs["api_key"] = api_key
-        else:
-            # Primary: OPENROUTER_API_KEY, fallback to direct provider keys
-            client_kwargs["api_key"] = os.getenv("OPENROUTER_API_KEY", "")
-        
-        # OpenRouter app attribution — shows hermes-agent in rankings/analytics
-        effective_base = client_kwargs.get("base_url", "")
-        if "openrouter" in effective_base.lower():
-            client_kwargs["default_headers"] = {
-                "HTTP-Referer": "https://github.com/NousResearch/hermes-agent",
-                "X-OpenRouter-Title": "Hermes Agent",
-                "X-OpenRouter-Categories": "cli-agent",
-            }
-        
-        self._client_kwargs = client_kwargs  # stored for rebuilding after interrupt
+        # --- OCI GenAI client ---
+        oci_profile = os.getenv("OCI_PROFILE", DEFAULT_PROFILE)
+        oci_compartment = os.getenv("OCI_COMPARTMENT_ID", DEFAULT_COMPARTMENT_ID)
+        oci_region = os.getenv("OCI_REGION", DEFAULT_REGION)
+
+        # Store OCI params for client rebuilding after interrupt
+        self._oci_params = {
+            "profile_name": oci_profile,
+            "compartment_id": oci_compartment,
+            "region": oci_region,
+        }
+
         try:
-            self.client = OpenAI(**client_kwargs)
+            if base_url and api_key:
+                # Custom endpoint — use standard OpenAI client (preserves flexibility)
+                from openai import OpenAI
+                self.client = OpenAI(base_url=base_url, api_key=api_key)
+                self._client_kwargs = {"base_url": base_url, "api_key": api_key}
+            else:
+                # Default: OCI GenAI
+                self.client = create_oci_client(
+                    profile_name=oci_profile,
+                    compartment_id=oci_compartment,
+                    region=oci_region,
+                )
+                self.base_url = get_oci_base_url(oci_region)
+                self._client_kwargs = None  # OCI client rebuilt via _oci_params
+
             if not self.quiet_mode:
                 print(f"🤖 AI Agent initialized with model: {self.model}")
                 if base_url:
                     print(f"🔗 Using custom base URL: {base_url}")
-                # Always show API key info (masked) for debugging auth issues
-                key_used = client_kwargs.get("api_key", "none")
-                if key_used and key_used != "dummy-key" and len(key_used) > 12:
-                    print(f"🔑 Using API key: {key_used[:8]}...{key_used[-4:]}")
                 else:
-                    print(f"⚠️  Warning: API key appears invalid or missing (got: '{key_used[:20] if key_used else 'none'}...')")
+                    print(f"🔗 Using OCI GenAI ({oci_region})")
         except Exception as e:
-            raise RuntimeError(f"Failed to initialize OpenAI client: {e}")
+            raise RuntimeError(f"Failed to initialize AI client: {e}")
         
         # Get available tools with filtering
         self.tools = get_tool_definitions(
@@ -1175,7 +1168,11 @@ class AIAgent:
                     pass
                 # Rebuild the client for future calls (cheap, no network)
                 try:
-                    self.client = OpenAI(**self._client_kwargs)
+                    if self._client_kwargs:
+                        from openai import OpenAI
+                        self.client = OpenAI(**self._client_kwargs)
+                    else:
+                        self.client = create_oci_client(**self._oci_params)
                 except Exception:
                     pass
                 raise InterruptedError("Agent interrupted during API call")
@@ -1185,16 +1182,6 @@ class AIAgent:
 
     def _build_api_kwargs(self, api_messages: list) -> dict:
         """Build the keyword arguments dict for the chat completions API call."""
-        provider_preferences = {}
-        if self.providers_allowed:
-            provider_preferences["only"] = self.providers_allowed
-        if self.providers_ignored:
-            provider_preferences["ignore"] = self.providers_ignored
-        if self.providers_order:
-            provider_preferences["order"] = self.providers_order
-        if self.provider_sort:
-            provider_preferences["sort"] = self.provider_sort
-
         api_kwargs = {
             "model": self.model,
             "messages": api_messages,
@@ -1205,29 +1192,9 @@ class AIAgent:
         if self.max_tokens is not None:
             api_kwargs.update(self._max_tokens_param(self.max_tokens))
 
-        extra_body = {}
-
-        if provider_preferences:
-            extra_body["provider"] = provider_preferences
-
-        _is_openrouter = "openrouter" in self.base_url.lower()
-        _is_nous = "nousresearch" in self.base_url.lower()
-
-        if _is_openrouter or _is_nous:
-            if self.reasoning_config is not None:
-                extra_body["reasoning"] = self.reasoning_config
-            else:
-                extra_body["reasoning"] = {
-                    "enabled": True,
-                    "effort": "xhigh"
-                }
-
-        # Nous Portal product attribution
-        if _is_nous:
-            extra_body["tags"] = ["product=hermes-agent"]
-
-        if extra_body:
-            api_kwargs["extra_body"] = extra_body
+        # Remove None tools to avoid API errors
+        if api_kwargs["tools"] is None:
+            del api_kwargs["tools"]
 
         return api_kwargs
 
@@ -2537,9 +2504,9 @@ class AIAgent:
 
 def main(
     query: str = None,
-    model: str = "anthropic/claude-opus-4.6",
+    model: str = "xai.grok-3-mini",
     api_key: str = None,
-    base_url: str = "https://openrouter.ai/api/v1",
+    base_url: str = None,
     max_turns: int = 10,
     enabled_toolsets: str = None,
     disabled_toolsets: str = None,
@@ -2554,9 +2521,9 @@ def main(
 
     Args:
         query (str): Natural language query for the agent. Defaults to Python 3.13 example.
-        model (str): Model name to use (OpenRouter format: provider/model). Defaults to anthropic/claude-sonnet-4-20250514.
-        api_key (str): API key for authentication. Uses OPENROUTER_API_KEY env var if not provided.
-        base_url (str): Base URL for the model API. Defaults to https://openrouter.ai/api/v1
+        model (str): Model name to use. Defaults to xai.grok-3-mini (OCI GenAI).
+        api_key (str): API key for authentication. Only needed for custom endpoints.
+        base_url (str): Base URL for the model API. Defaults to None (OCI GenAI).
         max_turns (int): Maximum number of API call iterations. Defaults to 10.
         enabled_toolsets (str): Comma-separated list of toolsets to enable. Supports predefined
                               toolsets (e.g., "research", "development", "safe").
