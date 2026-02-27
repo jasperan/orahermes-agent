@@ -9,6 +9,9 @@ from typing import Optional
 
 import oracledb
 
+# Auto-convert LOB objects to Python strings/bytes
+oracledb.defaults.fetch_lobs = False
+
 
 class OracleSessionDB:
     """Drop-in replacement for SessionDB using Oracle Database."""
@@ -144,25 +147,48 @@ class OracleSessionDB:
                 }
 
     def search_messages(self, query: str, limit: int = 20) -> list[dict]:
-        """Full-text search using Oracle Text CONTAINS."""
+        """Full-text search using Oracle Text CONTAINS with LIKE fallback."""
         with self._get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """SELECT m.session_id, m.role, m.content, m.timestamp_val,
-                              SCORE(1) as relevance
-                       FROM messages m
-                       WHERE CONTAINS(m.content, :1, 1) > 0
-                       ORDER BY relevance DESC
-                       FETCH FIRST :2 ROWS ONLY""",
-                    [query, limit],
-                )
+                # Sync Oracle Text index before search
+                try:
+                    cur.execute(
+                        "BEGIN CTX_DDL.SYNC_INDEX('idx_messages_content_ft'); END;"
+                    )
+                except Exception:
+                    pass  # Index may not exist or not need sync
+                try:
+                    cur.execute(
+                        """SELECT m.session_id, m.role, m.content, m.timestamp_val,
+                                  SCORE(1) as relevance
+                           FROM messages m
+                           WHERE CONTAINS(m.content, :1, 1) > 0
+                           ORDER BY relevance DESC
+                           FETCH FIRST :2 ROWS ONLY""",
+                        [query, limit],
+                    )
+                    results = cur.fetchall()
+                except Exception:
+                    results = []
+                if not results:
+                    # Fallback to LIKE if Oracle Text returns no results
+                    cur.execute(
+                        """SELECT m.session_id, m.role, m.content, m.timestamp_val,
+                                  1 as relevance
+                           FROM messages m
+                           WHERE m.content LIKE '%' || :1 || '%'
+                           ORDER BY m.timestamp_val DESC
+                           FETCH FIRST :2 ROWS ONLY""",
+                        [query, limit],
+                    )
+                    results = cur.fetchall()
                 return [
                     {
                         "session_id": r[0], "role": r[1],
                         "content": r[2], "timestamp": r[3],
                         "relevance": r[4],
                     }
-                    for r in cur.fetchall()
+                    for r in results
                 ]
 
     def update_token_counts(
