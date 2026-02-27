@@ -35,6 +35,9 @@ dependencies = [
   "platformdirs",
   # Skills Hub (GitHub App JWT auth — optional, only needed for bot identity)
   "PyJWT[crypto]",
+  # Oracle Cloud Infrastructure
+  "oci-openai",
+  "oracledb",
 ]
 
 [project.optional-dependencies]
