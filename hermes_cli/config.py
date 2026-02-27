@@ -57,7 +57,7 @@ def ensure_hermes_home():
 # =============================================================================
 
 DEFAULT_CONFIG = {
-    "model": "anthropic/claude-opus-4.6",
+    "model": "xai.grok-3-mini",
     "toolsets": ["hermes-cli"],
     "max_turns": 100,
     
@@ -140,21 +140,36 @@ DEFAULT_CONFIG = {
 
 # Required environment variables with metadata for migration prompts.
 # LLM provider is required but handled in the setup wizard's provider
-# selection step (Nous Portal / OpenRouter / Custom endpoint), so this
-# dict is intentionally empty — no single env var is universally required.
+# selection step (OCI GenAI / Custom endpoint), so this dict is
+# intentionally empty — no single env var is universally required.
 REQUIRED_ENV_VARS = {}
 
 # Optional environment variables that enhance functionality
 OPTIONAL_ENV_VARS = {
-    # ── Provider (handled in provider selection, not shown in checklists) ──
-    "OPENROUTER_API_KEY": {
-        "description": "OpenRouter API key (for vision, web scraping helpers, and MoA)",
-        "prompt": "OpenRouter API key",
-        "url": "https://openrouter.ai/keys",
-        "password": True,
-        "tools": ["vision_analyze", "mixture_of_agents"],
+    # ── OCI GenAI configuration ──
+    "OCI_PROFILE": {
+        "description": "OCI config profile name",
+        "prompt": "OCI config profile name",
+        "url": "https://docs.oracle.com/en-us/iaas/Content/API/Concepts/sdkconfig.htm",
+        "password": False,
         "category": "provider",
-        "advanced": True,
+        "advanced": False,
+    },
+    "OCI_REGION": {
+        "description": "OCI region for GenAI",
+        "prompt": "OCI region for GenAI",
+        "url": "https://docs.oracle.com/en-us/iaas/Content/General/Concepts/regions.htm",
+        "password": False,
+        "category": "provider",
+        "advanced": False,
+    },
+    "OCI_COMPARTMENT_ID": {
+        "description": "OCI compartment OCID",
+        "prompt": "OCI compartment OCID",
+        "url": "https://docs.oracle.com/en-us/iaas/Content/GSG/Tasks/contactingsupport_topic-Finding_the_OCID_of_a_Compartment.htm",
+        "password": False,
+        "category": "provider",
+        "advanced": False,
     },
 
     # ── Tool API keys ──
@@ -662,8 +677,9 @@ def show_config():
     print(color("◆ API Keys", Colors.CYAN, Colors.BOLD))
     
     keys = [
-        ("OPENROUTER_API_KEY", "OpenRouter"),
-        ("ANTHROPIC_API_KEY", "Anthropic"),
+        ("OCI_PROFILE", "OCI Profile"),
+        ("OCI_REGION", "OCI Region"),
+        ("OCI_COMPARTMENT_ID", "OCI Compartment"),
         ("VOICE_TOOLS_OPENAI_KEY", "OpenAI (STT/TTS)"),
         ("FIRECRAWL_API_KEY", "Firecrawl"),
         ("BROWSERBASE_API_KEY", "Browserbase"),
@@ -764,7 +780,8 @@ def set_config_value(key: str, value: str):
     """Set a configuration value."""
     # Check if it's an API key (goes to .env)
     api_keys = [
-        'OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY', 'VOICE_TOOLS_OPENAI_KEY',
+        'OCI_PROFILE', 'OCI_REGION', 'OCI_COMPARTMENT_ID',
+        'ANTHROPIC_API_KEY', 'VOICE_TOOLS_OPENAI_KEY',
         'FIRECRAWL_API_KEY', 'BROWSERBASE_API_KEY', 'BROWSERBASE_PROJECT_ID',
         'FAL_KEY', 'TELEGRAM_BOT_TOKEN', 'DISCORD_BOT_TOKEN',
         'TERMINAL_SSH_HOST', 'TERMINAL_SSH_USER', 'TERMINAL_SSH_KEY',
@@ -852,9 +869,9 @@ def config_command(args):
             print("Usage: hermes config set KEY VALUE")
             print()
             print("Examples:")
-            print("  hermes config set model anthropic/claude-sonnet-4")
+            print("  hermes config set model xai.grok-3-mini")
             print("  hermes config set terminal.backend docker")
-            print("  hermes config set OPENROUTER_API_KEY sk-or-...")
+            print("  hermes config set OCI_REGION us-chicago-1")
             sys.exit(1)
         set_config_value(key, value)
     
