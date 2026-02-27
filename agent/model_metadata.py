@@ -2,77 +2,48 @@
 
 Pure utility functions with no AIAgent dependency. Used by ContextCompressor
 and run_agent.py for pre-flight context checks.
+
+Model metadata is sourced from a local static map of OCI GenAI models
+instead of fetching from an external API.
 """
 
 import logging
-import time
 from typing import Any, Dict, List
-
-import requests
-
-from hermes_constants import OPENROUTER_MODELS_URL
 
 logger = logging.getLogger(__name__)
 
-_model_metadata_cache: Dict[str, Dict[str, Any]] = {}
-_model_metadata_cache_time: float = 0
-_MODEL_CACHE_TTL = 3600
+_MODEL_CACHE_TTL = 3600  # Kept for backward compatibility
 
-DEFAULT_CONTEXT_LENGTHS = {
-    "anthropic/claude-opus-4": 200000,
-    "anthropic/claude-opus-4.5": 200000,
-    "anthropic/claude-opus-4.6": 200000,
-    "anthropic/claude-sonnet-4": 200000,
-    "anthropic/claude-sonnet-4-20250514": 200000,
-    "anthropic/claude-haiku-4.5": 200000,
-    "openai/gpt-4o": 128000,
-    "openai/gpt-4-turbo": 128000,
-    "openai/gpt-4o-mini": 128000,
-    "google/gemini-2.0-flash": 1048576,
-    "google/gemini-2.5-pro": 1048576,
-    "meta-llama/llama-3.3-70b-instruct": 131072,
-    "deepseek/deepseek-chat-v3": 65536,
-    "qwen/qwen-2.5-72b-instruct": 32768,
+# ── OCI GenAI model catalogue (static, no network call needed) ──────────
+OCI_GENAI_MODELS: Dict[str, Dict[str, Any]] = {
+    "xai.grok-3-mini": {"context_length": 131072, "name": "Grok 3 Mini"},
+    "xai.grok-3": {"context_length": 131072, "name": "Grok 3"},
+    "meta.llama-3.3-70b-instruct": {"context_length": 128000, "name": "Llama 3.3 70B"},
+    "meta.llama-4-maverick-17b-128e-instruct-fp8": {"context_length": 1048576, "name": "Llama 4 Maverick"},
+    "meta.llama-4-scout-17b-16e-instruct-fp8": {"context_length": 10485760, "name": "Llama 4 Scout"},
+}
+
+# Fallback defaults for models not in the OCI catalogue
+DEFAULT_CONTEXT_LENGTHS: Dict[str, int] = {
+    "xai.grok-3-mini": 131072,
+    "xai.grok-3": 131072,
+    "meta.llama-3.3-70b-instruct": 128000,
+    "meta.llama-4-maverick-17b-128e-instruct-fp8": 1048576,
+    "meta.llama-4-scout-17b-16e-instruct-fp8": 10485760,
 }
 
 
 def fetch_model_metadata(force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
-    """Fetch model metadata from OpenRouter (cached for 1 hour)."""
-    global _model_metadata_cache, _model_metadata_cache_time
+    """Return the local OCI GenAI model metadata map.
 
-    if not force_refresh and _model_metadata_cache and (time.time() - _model_metadata_cache_time) < _MODEL_CACHE_TTL:
-        return _model_metadata_cache
-
-    try:
-        response = requests.get(OPENROUTER_MODELS_URL, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-
-        cache = {}
-        for model in data.get("data", []):
-            model_id = model.get("id", "")
-            cache[model_id] = {
-                "context_length": model.get("context_length", 128000),
-                "max_completion_tokens": model.get("top_provider", {}).get("max_completion_tokens", 4096),
-                "name": model.get("name", model_id),
-                "pricing": model.get("pricing", {}),
-            }
-            canonical = model.get("canonical_slug", "")
-            if canonical and canonical != model_id:
-                cache[canonical] = cache[model_id]
-
-        _model_metadata_cache = cache
-        _model_metadata_cache_time = time.time()
-        logger.debug("Fetched metadata for %s models from OpenRouter", len(cache))
-        return cache
-
-    except Exception as e:
-        logging.warning(f"Failed to fetch model metadata from OpenRouter: {e}")
-        return _model_metadata_cache or {}
+    The ``force_refresh`` parameter is accepted for backward compatibility
+    but has no effect since the catalogue is static.
+    """
+    return dict(OCI_GENAI_MODELS)
 
 
 def get_model_context_length(model: str) -> int:
-    """Get the context length for a model (API first, then fallback defaults)."""
+    """Get the context length for a model (local map first, then fallback defaults)."""
     metadata = fetch_model_metadata()
     if model in metadata:
         return metadata[model].get("context_length", 128000)
