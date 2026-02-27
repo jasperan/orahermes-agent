@@ -103,8 +103,8 @@ def _has_any_provider_configured() -> bool:
 def _resolve_last_cli_session() -> Optional[str]:
     """Look up the most recent CLI session ID from SQLite. Returns None if unavailable."""
     try:
-        from hermes_state import SessionDB
-        db = SessionDB()
+        from hermes_state import get_session_db
+        db = get_session_db()
         sessions = db.search_sessions(source="cli", limit=1)
         db.close()
         if sessions:
@@ -1253,8 +1253,8 @@ For more help on a command:
     def cmd_sessions(args):
         import json as _json
         try:
-            from hermes_state import SessionDB
-            db = SessionDB()
+            from hermes_state import get_session_db
+            db = get_session_db()
         except Exception as e:
             print(f"Error: Could not open session database: {e}")
             return

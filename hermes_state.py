@@ -24,6 +24,16 @@ from typing import Dict, Any, List, Optional
 
 DEFAULT_DB_PATH = Path(os.getenv("HERMES_HOME", Path.home() / ".hermes")) / "state.db"
 
+
+def get_session_db(**kwargs):
+    """Return Oracle SessionDB if configured, else SQLite."""
+    if os.getenv("ORACLE_DSN"):
+        from oracle_state import OracleSessionDB
+        return OracleSessionDB(**kwargs)
+    else:
+        return SessionDB(**kwargs)
+
+
 SCHEMA_VERSION = 2
 
 SCHEMA_SQL = """

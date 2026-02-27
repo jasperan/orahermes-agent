@@ -295,8 +295,8 @@ class SessionStore:
         # Initialize SQLite session database
         self._db = None
         try:
-            from hermes_state import SessionDB
-            self._db = SessionDB()
+            from hermes_state import get_session_db
+            self._db = get_session_db()
         except Exception as e:
             print(f"[gateway] Warning: SQLite session store unavailable, falling back to JSONL: {e}")
     

@@ -152,8 +152,8 @@ class GatewayRunner:
         # Initialize session database for session_search tool support
         self._session_db = None
         try:
-            from hermes_state import SessionDB
-            self._session_db = SessionDB()
+            from hermes_state import get_session_db
+            self._session_db = get_session_db()
         except Exception as e:
             logger.debug("SQLite session store not available: %s", e)
         
