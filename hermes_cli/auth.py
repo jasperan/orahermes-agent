@@ -1,72 +1,48 @@
 """
-Multi-provider authentication system for Hermes Agent.
+OCI profile-based authentication for OraHermes Agent.
 
-Supports OAuth device code flows (Nous Portal, future: OpenAI Codex) and
-traditional API key providers (OpenRouter, custom endpoints). Auth state
-is persisted in ~/.hermes/auth.json with cross-process file locking.
+OCI GenAI uses ~/.oci/config profiles for authentication. No OAuth device
+code flows or API key minting needed — the OCI SDK handles auth via config
+profiles, instance principals, or resource principals.
 
 Architecture:
-- ProviderConfig registry defines known OAuth providers
-- Auth store (auth.json) holds per-provider credential state
-- resolve_provider() picks the active provider via priority chain
-- resolve_*_runtime_credentials() handles token refresh and key minting
-- login_command() / logout_command() are the CLI entry points
+- resolve_provider() returns "oci" by default or "custom" for explicit overrides
+- login_command() / logout_command() are stubs (OCI uses config profiles)
+- Legacy symbols (ProviderConfig, AuthError, etc.) are preserved as stubs
+  so that other modules can still import them without breaking.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-import stat
-import time
-import webbrowser
-from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import httpx
 import yaml
 
 from hermes_cli.config import get_hermes_home, get_config_path
-from hermes_constants import OPENROUTER_BASE_URL
 
 logger = logging.getLogger(__name__)
 
-try:
-    import fcntl
-except Exception:
-    fcntl = None
-
 # =============================================================================
-# Constants
+# Constants (kept for compatibility)
 # =============================================================================
 
 AUTH_STORE_VERSION = 1
-AUTH_LOCK_TIMEOUT_SECONDS = 15.0
-
-# Nous Portal defaults
-DEFAULT_NOUS_PORTAL_URL = "https://portal.nousresearch.com"
-DEFAULT_NOUS_INFERENCE_URL = "https://inference-api.nousresearch.com/v1"
-DEFAULT_NOUS_CLIENT_ID = "hermes-cli"
-DEFAULT_NOUS_SCOPE = "inference:mint_agent_key"
-DEFAULT_AGENT_KEY_MIN_TTL_SECONDS = 30 * 60  # 30 minutes
-ACCESS_TOKEN_REFRESH_SKEW_SECONDS = 120       # refresh 2 min before expiry
-DEVICE_AUTH_POLL_INTERVAL_CAP_SECONDS = 1     # poll at most every 1s
 
 
 # =============================================================================
-# Provider Registry
+# Provider Registry (kept for compatibility)
 # =============================================================================
 
 @dataclass
 class ProviderConfig:
-    """Describes a known OAuth provider."""
+    """Describes a known provider."""
     id: str
     name: str
-    auth_type: str  # "oauth_device_code" or "api_key"
+    auth_type: str  # "oci_profile" or "api_key"
     portal_base_url: str = ""
     inference_base_url: str = ""
     client_id: str = ""
@@ -75,21 +51,16 @@ class ProviderConfig:
 
 
 PROVIDER_REGISTRY: Dict[str, ProviderConfig] = {
-    "nous": ProviderConfig(
-        id="nous",
-        name="Nous Portal",
-        auth_type="oauth_device_code",
-        portal_base_url=DEFAULT_NOUS_PORTAL_URL,
-        inference_base_url=DEFAULT_NOUS_INFERENCE_URL,
-        client_id=DEFAULT_NOUS_CLIENT_ID,
-        scope=DEFAULT_NOUS_SCOPE,
+    "oci": ProviderConfig(
+        id="oci",
+        name="OCI GenAI",
+        auth_type="oci_profile",
     ),
-    # Future: "openai_codex", "anthropic", etc.
 }
 
 
 # =============================================================================
-# Error Types
+# Error Types (kept for compatibility)
 # =============================================================================
 
 class AuthError(RuntimeError):
@@ -114,171 +85,17 @@ def format_auth_error(error: Exception) -> str:
     if not isinstance(error, AuthError):
         return str(error)
 
-    if error.relogin_required:
-        return f"{error} Run `hermes login` to re-authenticate."
-
-    if error.code == "subscription_required":
+    if error.code == "oci_config_missing":
         return (
-            "No active paid subscription found on Nous Portal. "
-            "Please purchase/activate a subscription, then retry."
+            "OCI config not found. Create ~/.oci/config with your tenancy details.\n"
+            "See: https://docs.oracle.com/iaas/Content/API/Concepts/sdkconfig.htm"
         )
-
-    if error.code == "insufficient_credits":
-        return (
-            "Subscription credits are exhausted. "
-            "Top up/renew credits in Nous Portal, then retry."
-        )
-
-    if error.code == "temporarily_unavailable":
-        return f"{error} Please retry in a few seconds."
 
     return str(error)
 
 
 # =============================================================================
-# Auth Store — persistence layer for ~/.hermes/auth.json
-# =============================================================================
-
-def _auth_file_path() -> Path:
-    return get_hermes_home() / "auth.json"
-
-
-def _auth_lock_path() -> Path:
-    return _auth_file_path().with_suffix(".lock")
-
-
-@contextmanager
-def _auth_store_lock(timeout_seconds: float = AUTH_LOCK_TIMEOUT_SECONDS):
-    """Cross-process advisory lock for auth.json reads+writes."""
-    lock_path = _auth_lock_path()
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with lock_path.open("a+") as lock_file:
-        if fcntl is None:
-            yield
-            return
-
-        deadline = time.time() + max(1.0, timeout_seconds)
-        while True:
-            try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                if time.time() >= deadline:
-                    raise TimeoutError("Timed out waiting for auth store lock")
-                time.sleep(0.05)
-
-        try:
-            yield
-        finally:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-
-
-def _load_auth_store(auth_file: Optional[Path] = None) -> Dict[str, Any]:
-    auth_file = auth_file or _auth_file_path()
-    if not auth_file.exists():
-        return {"version": AUTH_STORE_VERSION, "providers": {}}
-
-    try:
-        raw = json.loads(auth_file.read_text())
-    except Exception:
-        return {"version": AUTH_STORE_VERSION, "providers": {}}
-
-    if isinstance(raw, dict) and isinstance(raw.get("providers"), dict):
-        return raw
-
-    # Migrate from PR's "systems" format if present
-    if isinstance(raw, dict) and isinstance(raw.get("systems"), dict):
-        systems = raw["systems"]
-        providers = {}
-        if "nous_portal" in systems:
-            providers["nous"] = systems["nous_portal"]
-        return {"version": AUTH_STORE_VERSION, "providers": providers,
-                "active_provider": "nous" if providers else None}
-
-    return {"version": AUTH_STORE_VERSION, "providers": {}}
-
-
-def _save_auth_store(auth_store: Dict[str, Any]) -> Path:
-    auth_file = _auth_file_path()
-    auth_file.parent.mkdir(parents=True, exist_ok=True)
-    auth_store["version"] = AUTH_STORE_VERSION
-    auth_store["updated_at"] = datetime.now(timezone.utc).isoformat()
-    auth_file.write_text(json.dumps(auth_store, indent=2) + "\n")
-    # Restrict file permissions to owner only
-    try:
-        auth_file.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    except OSError:
-        pass
-    return auth_file
-
-
-def _load_provider_state(auth_store: Dict[str, Any], provider_id: str) -> Optional[Dict[str, Any]]:
-    providers = auth_store.get("providers")
-    if not isinstance(providers, dict):
-        return None
-    state = providers.get(provider_id)
-    return dict(state) if isinstance(state, dict) else None
-
-
-def _save_provider_state(auth_store: Dict[str, Any], provider_id: str, state: Dict[str, Any]) -> None:
-    providers = auth_store.setdefault("providers", {})
-    if not isinstance(providers, dict):
-        auth_store["providers"] = {}
-        providers = auth_store["providers"]
-    providers[provider_id] = state
-    auth_store["active_provider"] = provider_id
-
-
-def get_provider_auth_state(provider_id: str) -> Optional[Dict[str, Any]]:
-    """Return persisted auth state for a provider, or None."""
-    auth_store = _load_auth_store()
-    return _load_provider_state(auth_store, provider_id)
-
-
-def get_active_provider() -> Optional[str]:
-    """Return the currently active provider ID from auth store."""
-    auth_store = _load_auth_store()
-    return auth_store.get("active_provider")
-
-
-def clear_provider_auth(provider_id: Optional[str] = None) -> bool:
-    """
-    Clear auth state for a provider. Used by `hermes logout`.
-    If provider_id is None, clears the active provider.
-    Returns True if something was cleared.
-    """
-    with _auth_store_lock():
-        auth_store = _load_auth_store()
-        target = provider_id or auth_store.get("active_provider")
-        if not target:
-            return False
-
-        providers = auth_store.get("providers", {})
-        if target not in providers:
-            return False
-
-        del providers[target]
-        if auth_store.get("active_provider") == target:
-            auth_store["active_provider"] = None
-        _save_auth_store(auth_store)
-    return True
-
-
-def deactivate_provider() -> None:
-    """
-    Clear active_provider in auth.json without deleting credentials.
-    Used when the user switches to a non-OAuth provider (OpenRouter, custom)
-    so auto-resolution doesn't keep picking the OAuth provider.
-    """
-    with _auth_store_lock():
-        auth_store = _load_auth_store()
-        auth_store["active_provider"] = None
-        _save_auth_store(auth_store)
-
-
-# =============================================================================
-# Provider Resolution — picks which provider to use
+# Provider Resolution
 # =============================================================================
 
 def resolve_provider(
@@ -290,493 +107,87 @@ def resolve_provider(
     """
     Determine which inference provider to use.
 
-    Priority (when requested="auto" or None):
-    1. active_provider in auth.json with valid credentials
-    2. Explicit CLI api_key/base_url -> "openrouter"
-    3. OPENAI_API_KEY or OPENROUTER_API_KEY env vars -> "openrouter"
-    4. Fallback: "openrouter"
+    Returns "custom" if explicit base_url + api_key are provided,
+    otherwise always returns "oci".
     """
-    normalized = (requested or "auto").strip().lower()
-
-    if normalized in PROVIDER_REGISTRY:
-        return normalized
-    if normalized == "openrouter":
-        return "openrouter"
-    if normalized != "auto":
-        return "openrouter"
-
-    # Explicit one-off CLI creds always mean openrouter/custom
-    if explicit_api_key or explicit_base_url:
-        return "openrouter"
-
-    # Check auth store for an active OAuth provider
-    try:
-        auth_store = _load_auth_store()
-        active = auth_store.get("active_provider")
-        if active and active in PROVIDER_REGISTRY:
-            state = _load_provider_state(auth_store, active)
-            if state and (state.get("access_token") or state.get("refresh_token")):
-                return active
-    except Exception as e:
-        logger.debug("Could not detect active auth provider: %s", e)
-
-    if os.getenv("OPENAI_API_KEY") or os.getenv("OPENROUTER_API_KEY"):
-        return "openrouter"
-
-    return "openrouter"
+    if explicit_base_url and explicit_api_key:
+        return "custom"
+    return "oci"
 
 
 # =============================================================================
-# Timestamp / TTL helpers
+# Auth Store stubs — kept so other modules can import them
 # =============================================================================
 
-def _parse_iso_timestamp(value: Any) -> Optional[float]:
-    if not isinstance(value, str) or not value:
-        return None
-    text = value.strip()
-    if not text:
-        return None
-    if text.endswith("Z"):
-        text = text[:-1] + "+00:00"
-    try:
-        parsed = datetime.fromisoformat(text)
-    except Exception:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.timestamp()
+def get_provider_auth_state(provider_id: str) -> Optional[Dict[str, Any]]:
+    """Return persisted auth state for a provider, or None.
+
+    OCI auth is handled by the SDK via ~/.oci/config, so there is no
+    per-provider JSON state. Returns a synthetic dict for OCI.
+    """
+    if provider_id == "oci":
+        oci_profile = os.getenv("OCI_PROFILE", "foosball")
+        oci_config = Path.home() / ".oci" / "config"
+        return {
+            "provider": "oci",
+            "profile": oci_profile,
+            "config_exists": oci_config.exists(),
+        }
+    return None
 
 
-def _is_expiring(expires_at_iso: Any, skew_seconds: int) -> bool:
-    expires_epoch = _parse_iso_timestamp(expires_at_iso)
-    if expires_epoch is None:
-        return True
-    return expires_epoch <= (time.time() + skew_seconds)
+def get_active_provider() -> Optional[str]:
+    """Return the currently active provider ID. Always 'oci'."""
+    return "oci"
 
 
-def _coerce_ttl_seconds(expires_in: Any) -> int:
-    try:
-        ttl = int(expires_in)
-    except Exception:
-        ttl = 0
-    return max(0, ttl)
+def clear_provider_auth(provider_id: Optional[str] = None) -> bool:
+    """Clear auth state for a provider (no-op for OCI)."""
+    return False
 
 
-def _optional_base_url(value: Any) -> Optional[str]:
-    if not isinstance(value, str):
-        return None
-    cleaned = value.strip().rstrip("/")
-    return cleaned if cleaned else None
+def deactivate_provider() -> None:
+    """Deactivate the current provider (no-op for OCI)."""
+    pass
 
 
 # =============================================================================
-# SSH / remote session detection
+# OCI credential resolution (replaces resolve_nous_runtime_credentials)
 # =============================================================================
-
-def _is_remote_session() -> bool:
-    """Detect if running in an SSH session where webbrowser.open() won't work."""
-    return bool(os.getenv("SSH_CLIENT") or os.getenv("SSH_TTY"))
-
-
-# =============================================================================
-# TLS verification helper
-# =============================================================================
-
-def _resolve_verify(
-    *,
-    insecure: Optional[bool] = None,
-    ca_bundle: Optional[str] = None,
-    auth_state: Optional[Dict[str, Any]] = None,
-) -> bool | str:
-    tls_state = auth_state.get("tls") if isinstance(auth_state, dict) else {}
-    tls_state = tls_state if isinstance(tls_state, dict) else {}
-
-    effective_insecure = (
-        bool(insecure) if insecure is not None
-        else bool(tls_state.get("insecure", False))
-    )
-    effective_ca = (
-        ca_bundle
-        or tls_state.get("ca_bundle")
-        or os.getenv("HERMES_CA_BUNDLE")
-        or os.getenv("SSL_CERT_FILE")
-    )
-
-    if effective_insecure:
-        return False
-    if effective_ca:
-        return str(effective_ca)
-    return True
-
-
-# =============================================================================
-# OAuth Device Code Flow — generic, parameterized by provider
-# =============================================================================
-
-def _request_device_code(
-    client: httpx.Client,
-    portal_base_url: str,
-    client_id: str,
-    scope: Optional[str],
-) -> Dict[str, Any]:
-    """POST to the device code endpoint. Returns device_code, user_code, etc."""
-    response = client.post(
-        f"{portal_base_url}/api/oauth/device/code",
-        data={
-            "client_id": client_id,
-            **({"scope": scope} if scope else {}),
-        },
-    )
-    response.raise_for_status()
-    data = response.json()
-
-    required_fields = [
-        "device_code", "user_code", "verification_uri",
-        "verification_uri_complete", "expires_in", "interval",
-    ]
-    missing = [f for f in required_fields if f not in data]
-    if missing:
-        raise ValueError(f"Device code response missing fields: {', '.join(missing)}")
-    return data
-
-
-def _poll_for_token(
-    client: httpx.Client,
-    portal_base_url: str,
-    client_id: str,
-    device_code: str,
-    expires_in: int,
-    poll_interval: int,
-) -> Dict[str, Any]:
-    """Poll the token endpoint until the user approves or the code expires."""
-    deadline = time.time() + max(1, expires_in)
-    current_interval = max(1, min(poll_interval, DEVICE_AUTH_POLL_INTERVAL_CAP_SECONDS))
-
-    while time.time() < deadline:
-        response = client.post(
-            f"{portal_base_url}/api/oauth/token",
-            data={
-                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-                "client_id": client_id,
-                "device_code": device_code,
-            },
-        )
-
-        if response.status_code == 200:
-            payload = response.json()
-            if "access_token" not in payload:
-                raise ValueError("Token response did not include access_token")
-            return payload
-
-        try:
-            error_payload = response.json()
-        except Exception:
-            response.raise_for_status()
-            raise RuntimeError("Token endpoint returned a non-JSON error response")
-
-        error_code = error_payload.get("error", "")
-        if error_code == "authorization_pending":
-            time.sleep(current_interval)
-            continue
-        if error_code == "slow_down":
-            current_interval = min(current_interval + 1, 30)
-            time.sleep(current_interval)
-            continue
-
-        description = error_payload.get("error_description") or "Unknown authentication error"
-        raise RuntimeError(f"{error_code}: {description}")
-
-    raise TimeoutError("Timed out waiting for device authorization")
-
-
-# =============================================================================
-# Nous Portal — token refresh, agent key minting, model discovery
-# =============================================================================
-
-def _refresh_access_token(
-    *,
-    client: httpx.Client,
-    portal_base_url: str,
-    client_id: str,
-    refresh_token: str,
-) -> Dict[str, Any]:
-    response = client.post(
-        f"{portal_base_url}/api/oauth/token",
-        data={
-            "grant_type": "refresh_token",
-            "client_id": client_id,
-            "refresh_token": refresh_token,
-        },
-    )
-
-    if response.status_code == 200:
-        payload = response.json()
-        if "access_token" not in payload:
-            raise AuthError("Refresh response missing access_token",
-                            provider="nous", code="invalid_token", relogin_required=True)
-        return payload
-
-    try:
-        error_payload = response.json()
-    except Exception as exc:
-        raise AuthError("Refresh token exchange failed",
-                        provider="nous", relogin_required=True) from exc
-
-    code = str(error_payload.get("error", "invalid_grant"))
-    description = str(error_payload.get("error_description") or "Refresh token exchange failed")
-    relogin = code in {"invalid_grant", "invalid_token"}
-    raise AuthError(description, provider="nous", code=code, relogin_required=relogin)
-
-
-def _mint_agent_key(
-    *,
-    client: httpx.Client,
-    portal_base_url: str,
-    access_token: str,
-    min_ttl_seconds: int,
-) -> Dict[str, Any]:
-    """Mint (or reuse) a short-lived inference API key."""
-    response = client.post(
-        f"{portal_base_url}/api/oauth/agent-key",
-        headers={"Authorization": f"Bearer {access_token}"},
-        json={"min_ttl_seconds": max(60, int(min_ttl_seconds))},
-    )
-
-    if response.status_code == 200:
-        payload = response.json()
-        if "api_key" not in payload:
-            raise AuthError("Mint response missing api_key",
-                            provider="nous", code="server_error")
-        return payload
-
-    try:
-        error_payload = response.json()
-    except Exception as exc:
-        raise AuthError("Agent key mint request failed",
-                        provider="nous", code="server_error") from exc
-
-    code = str(error_payload.get("error", "server_error"))
-    description = str(error_payload.get("error_description") or "Agent key mint request failed")
-    relogin = code in {"invalid_token", "invalid_grant"}
-    raise AuthError(description, provider="nous", code=code, relogin_required=relogin)
-
-
-def fetch_nous_models(
-    *,
-    inference_base_url: str,
-    api_key: str,
-    timeout_seconds: float = 15.0,
-    verify: bool | str = True,
-) -> List[str]:
-    """Fetch available model IDs from the Nous inference API."""
-    timeout = httpx.Timeout(timeout_seconds)
-    with httpx.Client(timeout=timeout, headers={"Accept": "application/json"}, verify=verify) as client:
-        response = client.get(
-            f"{inference_base_url.rstrip('/')}/models",
-            headers={"Authorization": f"Bearer {api_key}"},
-        )
-
-    if response.status_code != 200:
-        description = f"/models request failed with status {response.status_code}"
-        try:
-            err = response.json()
-            description = str(err.get("error_description") or err.get("error") or description)
-        except Exception as e:
-            logger.debug("Could not parse error response JSON: %s", e)
-        raise AuthError(description, provider="nous", code="models_fetch_failed")
-
-    payload = response.json()
-    data = payload.get("data")
-    if not isinstance(data, list):
-        return []
-
-    model_ids: List[str] = []
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-        model_id = item.get("id")
-        if isinstance(model_id, str) and model_id.strip():
-            mid = model_id.strip()
-            # Skip Hermes models — they're not reliable for agentic tool-calling
-            if "hermes" in mid.lower():
-                continue
-            model_ids.append(mid)
-
-    return list(dict.fromkeys(model_ids))
-
-
-def _agent_key_is_usable(state: Dict[str, Any], min_ttl_seconds: int) -> bool:
-    key = state.get("agent_key")
-    if not isinstance(key, str) or not key.strip():
-        return False
-    return not _is_expiring(state.get("agent_key_expires_at"), min_ttl_seconds)
-
 
 def resolve_nous_runtime_credentials(
     *,
-    min_key_ttl_seconds: int = DEFAULT_AGENT_KEY_MIN_TTL_SECONDS,
+    min_key_ttl_seconds: int = 1800,
     timeout_seconds: float = 15.0,
     insecure: Optional[bool] = None,
     ca_bundle: Optional[str] = None,
     force_mint: bool = False,
 ) -> Dict[str, Any]:
     """
-    Resolve Nous inference credentials for runtime use.
+    Resolve OCI GenAI credentials for runtime use.
 
-    Ensures access_token is valid (refreshes if needed) and a short-lived
-    inference key is present with minimum TTL (mints/reuses as needed).
-    Concurrent processes coordinate through the auth store file lock.
-
-    Returns dict with: provider, base_url, api_key, key_id, expires_at,
-    expires_in, source ("cache" or "portal").
+    This is a compatibility stub — OCI authentication is handled by the SDK
+    via config profiles. Returns a dict with provider info so callers that
+    expect the old Nous Portal credential dict structure still work.
     """
-    min_key_ttl_seconds = max(60, int(min_key_ttl_seconds))
+    oci_profile = os.getenv("OCI_PROFILE", "foosball")
+    oci_config = Path.home() / ".oci" / "config"
 
-    with _auth_store_lock():
-        auth_store = _load_auth_store()
-        state = _load_provider_state(auth_store, "nous")
-
-        if not state:
-            raise AuthError("Hermes is not logged into Nous Portal.",
-                            provider="nous", relogin_required=True)
-
-        portal_base_url = (
-            _optional_base_url(state.get("portal_base_url"))
-            or os.getenv("HERMES_PORTAL_BASE_URL")
-            or os.getenv("NOUS_PORTAL_BASE_URL")
-            or DEFAULT_NOUS_PORTAL_URL
-        ).rstrip("/")
-        inference_base_url = (
-            _optional_base_url(state.get("inference_base_url"))
-            or os.getenv("NOUS_INFERENCE_BASE_URL")
-            or DEFAULT_NOUS_INFERENCE_URL
-        ).rstrip("/")
-        client_id = str(state.get("client_id") or DEFAULT_NOUS_CLIENT_ID)
-
-        verify = _resolve_verify(insecure=insecure, ca_bundle=ca_bundle, auth_state=state)
-        timeout = httpx.Timeout(timeout_seconds if timeout_seconds else 15.0)
-
-        with httpx.Client(timeout=timeout, headers={"Accept": "application/json"}, verify=verify) as client:
-            access_token = state.get("access_token")
-            refresh_token = state.get("refresh_token")
-
-            if not isinstance(access_token, str) or not access_token:
-                raise AuthError("No access token found for Nous Portal login.",
-                                provider="nous", relogin_required=True)
-
-            # Step 1: refresh access token if expiring
-            if _is_expiring(state.get("expires_at"), ACCESS_TOKEN_REFRESH_SKEW_SECONDS):
-                if not isinstance(refresh_token, str) or not refresh_token:
-                    raise AuthError("Session expired and no refresh token is available.",
-                                    provider="nous", relogin_required=True)
-
-                refreshed = _refresh_access_token(
-                    client=client, portal_base_url=portal_base_url,
-                    client_id=client_id, refresh_token=refresh_token,
-                )
-                now = datetime.now(timezone.utc)
-                access_ttl = _coerce_ttl_seconds(refreshed.get("expires_in"))
-                state["access_token"] = refreshed["access_token"]
-                state["refresh_token"] = refreshed.get("refresh_token") or refresh_token
-                state["token_type"] = refreshed.get("token_type") or state.get("token_type") or "Bearer"
-                state["scope"] = refreshed.get("scope") or state.get("scope")
-                refreshed_url = _optional_base_url(refreshed.get("inference_base_url"))
-                if refreshed_url:
-                    inference_base_url = refreshed_url
-                state["obtained_at"] = now.isoformat()
-                state["expires_in"] = access_ttl
-                state["expires_at"] = datetime.fromtimestamp(
-                    now.timestamp() + access_ttl, tz=timezone.utc
-                ).isoformat()
-                access_token = state["access_token"]
-
-            # Step 2: mint agent key if missing/expiring
-            used_cached_key = False
-            mint_payload: Optional[Dict[str, Any]] = None
-
-            if not force_mint and _agent_key_is_usable(state, min_key_ttl_seconds):
-                used_cached_key = True
-            else:
-                try:
-                    mint_payload = _mint_agent_key(
-                        client=client, portal_base_url=portal_base_url,
-                        access_token=access_token, min_ttl_seconds=min_key_ttl_seconds,
-                    )
-                except AuthError as exc:
-                    # Retry path: access token may be stale server-side despite local checks
-                    if exc.code in {"invalid_token", "invalid_grant"} and isinstance(refresh_token, str) and refresh_token:
-                        refreshed = _refresh_access_token(
-                            client=client, portal_base_url=portal_base_url,
-                            client_id=client_id, refresh_token=refresh_token,
-                        )
-                        now = datetime.now(timezone.utc)
-                        access_ttl = _coerce_ttl_seconds(refreshed.get("expires_in"))
-                        state["access_token"] = refreshed["access_token"]
-                        state["refresh_token"] = refreshed.get("refresh_token") or refresh_token
-                        state["token_type"] = refreshed.get("token_type") or state.get("token_type") or "Bearer"
-                        state["scope"] = refreshed.get("scope") or state.get("scope")
-                        refreshed_url = _optional_base_url(refreshed.get("inference_base_url"))
-                        if refreshed_url:
-                            inference_base_url = refreshed_url
-                        state["obtained_at"] = now.isoformat()
-                        state["expires_in"] = access_ttl
-                        state["expires_at"] = datetime.fromtimestamp(
-                            now.timestamp() + access_ttl, tz=timezone.utc
-                        ).isoformat()
-                        access_token = state["access_token"]
-
-                        mint_payload = _mint_agent_key(
-                            client=client, portal_base_url=portal_base_url,
-                            access_token=access_token, min_ttl_seconds=min_key_ttl_seconds,
-                        )
-                    else:
-                        raise
-
-            if mint_payload is not None:
-                now = datetime.now(timezone.utc)
-                state["agent_key"] = mint_payload.get("api_key")
-                state["agent_key_id"] = mint_payload.get("key_id")
-                state["agent_key_expires_at"] = mint_payload.get("expires_at")
-                state["agent_key_expires_in"] = mint_payload.get("expires_in")
-                state["agent_key_reused"] = bool(mint_payload.get("reused", False))
-                state["agent_key_obtained_at"] = now.isoformat()
-                minted_url = _optional_base_url(mint_payload.get("inference_base_url"))
-                if minted_url:
-                    inference_base_url = minted_url
-
-            # Persist routing and TLS metadata for non-interactive refresh/mint
-            state["portal_base_url"] = portal_base_url
-            state["inference_base_url"] = inference_base_url
-            state["client_id"] = client_id
-            state["tls"] = {
-                "insecure": verify is False,
-                "ca_bundle": verify if isinstance(verify, str) else None,
-            }
-
-        _save_provider_state(auth_store, "nous", state)
-        _save_auth_store(auth_store)
-
-    api_key = state.get("agent_key")
-    if not isinstance(api_key, str) or not api_key:
-        raise AuthError("Failed to resolve a Nous inference API key",
-                        provider="nous", code="server_error")
-
-    expires_at = state.get("agent_key_expires_at")
-    expires_epoch = _parse_iso_timestamp(expires_at)
-    expires_in = (
-        max(0, int(expires_epoch - time.time()))
-        if expires_epoch is not None
-        else _coerce_ttl_seconds(state.get("agent_key_expires_in"))
-    )
+    if not oci_config.exists():
+        raise AuthError(
+            f"OCI config file not found at {oci_config}",
+            provider="oci",
+            code="oci_config_missing",
+        )
 
     return {
-        "provider": "nous",
-        "base_url": inference_base_url,
-        "api_key": api_key,
-        "key_id": state.get("agent_key_id"),
-        "expires_at": expires_at,
-        "expires_in": expires_in,
-        "source": "cache" if used_cached_key else "portal",
+        "provider": "oci",
+        "base_url": "oci://genai",
+        "api_key": f"oci-profile:{oci_profile}",
+        "key_id": None,
+        "expires_at": None,
+        "expires_in": None,
+        "source": "oci_config",
     }
 
 
@@ -785,102 +196,49 @@ def resolve_nous_runtime_credentials(
 # =============================================================================
 
 def get_nous_auth_status() -> Dict[str, Any]:
-    """Status snapshot for `hermes status` output."""
-    state = get_provider_auth_state("nous")
-    if not state:
-        return {
-            "logged_in": False,
-            "portal_base_url": None,
-            "inference_base_url": None,
-            "access_expires_at": None,
-            "agent_key_expires_at": None,
-            "has_refresh_token": False,
-        }
+    """Status snapshot for `hermes status` output — adapted for OCI."""
+    oci_profile = os.getenv("OCI_PROFILE", "foosball")
+    oci_config = Path.home() / ".oci" / "config"
     return {
-        "logged_in": bool(state.get("access_token")),
-        "portal_base_url": state.get("portal_base_url"),
-        "inference_base_url": state.get("inference_base_url"),
-        "access_expires_at": state.get("expires_at"),
-        "agent_key_expires_at": state.get("agent_key_expires_at"),
-        "has_refresh_token": bool(state.get("refresh_token")),
+        "logged_in": oci_config.exists(),
+        "portal_base_url": None,
+        "inference_base_url": "oci://genai",
+        "access_expires_at": None,
+        "agent_key_expires_at": None,
+        "has_refresh_token": False,
+        "oci_profile": oci_profile,
     }
 
 
 def get_auth_status(provider_id: Optional[str] = None) -> Dict[str, Any]:
     """Generic auth status dispatcher."""
-    target = provider_id or get_active_provider()
-    if target == "nous":
-        return get_nous_auth_status()
-    return {"logged_in": False}
+    return get_nous_auth_status()
 
 
 # =============================================================================
-# CLI Commands — login / logout
+# Model helpers (kept for compatibility)
 # =============================================================================
 
-def _update_config_for_provider(provider_id: str, inference_base_url: str) -> Path:
-    """Update config.yaml and auth.json to reflect the active provider."""
-    # Set active_provider in auth.json so auto-resolution picks this provider
-    with _auth_store_lock():
-        auth_store = _load_auth_store()
-        auth_store["active_provider"] = provider_id
-        _save_auth_store(auth_store)
+def fetch_nous_models(
+    *,
+    inference_base_url: str = "",
+    api_key: str = "",
+    timeout_seconds: float = 15.0,
+    verify: bool | str = True,
+) -> List[str]:
+    """Fetch available model IDs.
 
-    # Update config.yaml model section
-    config_path = get_config_path()
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-
-    config: Dict[str, Any] = {}
-    if config_path.exists():
-        try:
-            loaded = yaml.safe_load(config_path.read_text()) or {}
-            if isinstance(loaded, dict):
-                config = loaded
-        except Exception:
-            config = {}
-
-    current_model = config.get("model")
-    if isinstance(current_model, dict):
-        model_cfg = dict(current_model)
-    elif isinstance(current_model, str) and current_model.strip():
-        model_cfg = {"default": current_model.strip()}
-    else:
-        model_cfg = {}
-
-    model_cfg["provider"] = provider_id
-    model_cfg["base_url"] = inference_base_url.rstrip("/")
-    config["model"] = model_cfg
-
-    config_path.write_text(yaml.safe_dump(config, sort_keys=False))
-    return config_path
-
-
-def _reset_config_provider() -> Path:
-    """Reset config.yaml provider back to auto after logout."""
-    config_path = get_config_path()
-    if not config_path.exists():
-        return config_path
-
-    try:
-        config = yaml.safe_load(config_path.read_text()) or {}
-    except Exception:
-        return config_path
-
-    if not isinstance(config, dict):
-        return config_path
-
-    model = config.get("model")
-    if isinstance(model, dict):
-        model["provider"] = "auto"
-        if "base_url" in model:
-            model["base_url"] = OPENROUTER_BASE_URL
-    config_path.write_text(yaml.safe_dump(config, sort_keys=False))
-    return config_path
+    OCI GenAI models are configured statically via hermes_constants.
+    Returns an empty list — model listing is handled elsewhere.
+    """
+    return []
 
 
 def _prompt_model_selection(model_ids: List[str], current_model: str = "") -> Optional[str]:
-    """Interactive model selection. Puts current_model first with a marker. Returns chosen model ID or None."""
-    # Reorder: current model first, then the rest (deduplicated)
+    """Interactive model selection. Returns chosen model ID or None."""
+    if not model_ids:
+        return None
+
     ordered = []
     if current_model and current_model in model_ids:
         ordered.append(current_model)
@@ -888,45 +246,11 @@ def _prompt_model_selection(model_ids: List[str], current_model: str = "") -> Op
         if mid not in ordered:
             ordered.append(mid)
 
-    # Build display labels with marker on current
     def _label(mid):
         if mid == current_model:
-            return f"{mid}  ← currently in use"
+            return f"{mid}  <- currently in use"
         return mid
 
-    # Default cursor on the current model (index 0 if it was reordered to top)
-    default_idx = 0
-
-    # Try arrow-key menu first, fall back to number input
-    try:
-        from simple_term_menu import TerminalMenu
-        choices = [f"  {_label(mid)}" for mid in ordered]
-        choices.append("  Enter custom model name")
-        choices.append("  Skip (keep current)")
-        menu = TerminalMenu(
-            choices,
-            cursor_index=default_idx,
-            menu_cursor="-> ",
-            menu_cursor_style=("fg_green", "bold"),
-            menu_highlight_style=("fg_green",),
-            cycle_cursor=True,
-            clear_screen=False,
-            title="Select default model:",
-        )
-        idx = menu.show()
-        if idx is None:
-            return None
-        print()
-        if idx < len(ordered):
-            return ordered[idx]
-        elif idx == len(ordered):
-            custom = input("Enter model name: ").strip()
-            return custom if custom else None
-        return None
-    except (ImportError, NotImplementedError):
-        pass
-
-    # Fallback: numbered list
     print("Select default model:")
     for i, mid in enumerate(ordered, 1):
         print(f"  {i}. {_label(mid)}")
@@ -960,7 +284,6 @@ def _save_model_choice(model_id: str) -> None:
     from hermes_cli.config import save_config, load_config, save_env_value
 
     config = load_config()
-    # Handle both string and dict model formats
     if isinstance(config.get("model"), dict):
         config["model"]["default"] = model_id
     else:
@@ -969,205 +292,65 @@ def _save_model_choice(model_id: str) -> None:
     save_env_value("LLM_MODEL", model_id)
 
 
-def login_command(args) -> None:
-    """Run OAuth device code login for the selected provider."""
-    provider_id = getattr(args, "provider", None) or "nous"
+# =============================================================================
+# Config helpers (kept for compatibility)
+# =============================================================================
 
-    if provider_id not in PROVIDER_REGISTRY:
-        print(f"Unknown provider: {provider_id}")
-        print(f"Available: {', '.join(PROVIDER_REGISTRY.keys())}")
-        raise SystemExit(1)
+def _update_config_for_provider(provider_id: str, inference_base_url: str) -> Path:
+    """Update config.yaml to reflect the active provider."""
+    config_path = get_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
 
-    pconfig = PROVIDER_REGISTRY[provider_id]
+    config: Dict[str, Any] = {}
+    if config_path.exists():
+        try:
+            loaded = yaml.safe_load(config_path.read_text()) or {}
+            if isinstance(loaded, dict):
+                config = loaded
+        except Exception:
+            config = {}
 
-    if provider_id == "nous":
-        _login_nous(args, pconfig)
+    current_model = config.get("model")
+    if isinstance(current_model, dict):
+        model_cfg = dict(current_model)
+    elif isinstance(current_model, str) and current_model.strip():
+        model_cfg = {"default": current_model.strip()}
     else:
-        print(f"Login for provider '{provider_id}' is not yet implemented.")
-        raise SystemExit(1)
+        model_cfg = {}
+
+    model_cfg["provider"] = provider_id
+    if inference_base_url:
+        model_cfg["base_url"] = inference_base_url.rstrip("/")
+    config["model"] = model_cfg
+
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+    return config_path
+
+
+# =============================================================================
+# CLI Commands — login / logout (stubs for OCI)
+# =============================================================================
+
+def login_command(args) -> None:
+    """OCI authentication uses config profiles (~/.oci/config). No login needed."""
+    print("OCI GenAI authentication uses your OCI config profile.")
+    print("Configure your profile in ~/.oci/config")
+    print(f"Current profile: {os.getenv('OCI_PROFILE', 'foosball')}")
+
+    oci_config = Path.home() / ".oci" / "config"
+    if oci_config.exists():
+        print(f"Config file found: {oci_config}")
+    else:
+        print(f"WARNING: Config file not found at {oci_config}")
+        print("Create one following: https://docs.oracle.com/iaas/Content/API/Concepts/sdkconfig.htm")
 
 
 def _login_nous(args, pconfig: ProviderConfig) -> None:
-    """Nous Portal device authorization flow."""
-    portal_base_url = (
-        getattr(args, "portal_url", None)
-        or os.getenv("HERMES_PORTAL_BASE_URL")
-        or os.getenv("NOUS_PORTAL_BASE_URL")
-        or pconfig.portal_base_url
-    ).rstrip("/")
-    requested_inference_url = (
-        getattr(args, "inference_url", None)
-        or os.getenv("NOUS_INFERENCE_BASE_URL")
-        or pconfig.inference_base_url
-    ).rstrip("/")
-    client_id = getattr(args, "client_id", None) or pconfig.client_id
-    scope = getattr(args, "scope", None) or pconfig.scope
-    open_browser = not getattr(args, "no_browser", False)
-    timeout_seconds = getattr(args, "timeout", None) or 15.0
-    timeout = httpx.Timeout(timeout_seconds)
-
-    insecure = bool(getattr(args, "insecure", False))
-    ca_bundle = (
-        getattr(args, "ca_bundle", None)
-        or os.getenv("HERMES_CA_BUNDLE")
-        or os.getenv("SSL_CERT_FILE")
-    )
-    verify: bool | str = False if insecure else (ca_bundle if ca_bundle else True)
-
-    # Skip browser open in SSH sessions
-    if _is_remote_session():
-        open_browser = False
-
-    print(f"Starting Hermes login via {pconfig.name}...")
-    print(f"Portal: {portal_base_url}")
-    if insecure:
-        print("TLS verification: disabled (--insecure)")
-    elif ca_bundle:
-        print(f"TLS verification: custom CA bundle ({ca_bundle})")
-
-    try:
-        with httpx.Client(timeout=timeout, headers={"Accept": "application/json"}, verify=verify) as client:
-            device_data = _request_device_code(
-                client=client, portal_base_url=portal_base_url,
-                client_id=client_id, scope=scope,
-            )
-
-            verification_url = str(device_data["verification_uri_complete"])
-            user_code = str(device_data["user_code"])
-            expires_in = int(device_data["expires_in"])
-            interval = int(device_data["interval"])
-
-            print()
-            print("To continue:")
-            print(f"  1. Open: {verification_url}")
-            print(f"  2. If prompted, enter code: {user_code}")
-
-            if open_browser:
-                opened = webbrowser.open(verification_url)
-                if opened:
-                    print("  (Opened browser for verification)")
-                else:
-                    print("  Could not open browser automatically — use the URL above.")
-
-            effective_interval = max(1, min(interval, DEVICE_AUTH_POLL_INTERVAL_CAP_SECONDS))
-            print(f"Waiting for approval (polling every {effective_interval}s)...")
-
-            token_data = _poll_for_token(
-                client=client, portal_base_url=portal_base_url,
-                client_id=client_id, device_code=str(device_data["device_code"]),
-                expires_in=expires_in, poll_interval=interval,
-            )
-
-        # Process token response
-        now = datetime.now(timezone.utc)
-        token_expires_in = _coerce_ttl_seconds(token_data.get("expires_in", 0))
-        expires_at = now.timestamp() + token_expires_in
-        inference_base_url = (
-            _optional_base_url(token_data.get("inference_base_url"))
-            or requested_inference_url
-        )
-        if inference_base_url != requested_inference_url:
-            print(f"Using portal-provided inference URL: {inference_base_url}")
-
-        auth_state = {
-            "portal_base_url": portal_base_url,
-            "inference_base_url": inference_base_url,
-            "client_id": client_id,
-            "scope": token_data.get("scope") or scope,
-            "token_type": token_data.get("token_type", "Bearer"),
-            "access_token": token_data["access_token"],
-            "refresh_token": token_data.get("refresh_token"),
-            "obtained_at": now.isoformat(),
-            "expires_at": datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat(),
-            "expires_in": token_expires_in,
-            "tls": {
-                "insecure": verify is False,
-                "ca_bundle": verify if isinstance(verify, str) else None,
-            },
-            "agent_key": None,
-            "agent_key_id": None,
-            "agent_key_expires_at": None,
-            "agent_key_expires_in": None,
-            "agent_key_reused": None,
-            "agent_key_obtained_at": None,
-        }
-
-        # Save auth state
-        with _auth_store_lock():
-            auth_store = _load_auth_store()
-            _save_provider_state(auth_store, "nous", auth_state)
-            saved_to = _save_auth_store(auth_store)
-
-        config_path = _update_config_for_provider("nous", inference_base_url)
-        print()
-        print("Login successful!")
-        print(f"  Auth state: {saved_to}")
-        print(f"  Config updated: {config_path} (model.provider=nous)")
-
-        # Mint an initial agent key and list available models
-        try:
-            runtime_creds = resolve_nous_runtime_credentials(
-                min_key_ttl_seconds=5 * 60,
-                timeout_seconds=timeout_seconds,
-                insecure=insecure, ca_bundle=ca_bundle,
-            )
-            runtime_key = runtime_creds.get("api_key")
-            runtime_base_url = runtime_creds.get("base_url") or inference_base_url
-            if not isinstance(runtime_key, str) or not runtime_key:
-                raise AuthError("No runtime API key available to fetch models",
-                                provider="nous", code="invalid_token")
-
-            model_ids = fetch_nous_models(
-                inference_base_url=runtime_base_url,
-                api_key=runtime_key,
-                timeout_seconds=timeout_seconds,
-                verify=verify,
-            )
-
-            print()
-            if model_ids:
-                selected_model = _prompt_model_selection(model_ids)
-                if selected_model:
-                    _save_model_choice(selected_model)
-                    print(f"Default model set to: {selected_model}")
-            else:
-                print("No models were returned by the inference API.")
-        except Exception as exc:
-            message = format_auth_error(exc) if isinstance(exc, AuthError) else str(exc)
-            print()
-            print(f"Login succeeded, but could not fetch available models. Reason: {message}")
-
-    except KeyboardInterrupt:
-        print("\nLogin cancelled.")
-        raise SystemExit(130)
-    except Exception as exc:
-        print(f"Login failed: {exc}")
-        raise SystemExit(1)
+    """Legacy stub — redirects to OCI login guidance."""
+    login_command(args)
 
 
 def logout_command(args) -> None:
-    """Clear auth state for a provider."""
-    provider_id = getattr(args, "provider", None)
-
-    if provider_id and provider_id not in PROVIDER_REGISTRY:
-        print(f"Unknown provider: {provider_id}")
-        raise SystemExit(1)
-
-    active = get_active_provider()
-    target = provider_id or active
-
-    if not target:
-        print("No provider is currently logged in.")
-        return
-
-    provider_name = PROVIDER_REGISTRY[target].name if target in PROVIDER_REGISTRY else target
-
-    if clear_provider_auth(target):
-        _reset_config_provider()
-        print(f"Logged out of {provider_name}.")
-        if os.getenv("OPENROUTER_API_KEY"):
-            print("Hermes will use OpenRouter for inference.")
-        else:
-            print("Run `hermes login` or configure an API key to use Hermes.")
-    else:
-        print(f"No auth state found for {provider_name}.")
+    """OCI profile auth has no session to clear."""
+    print("OCI GenAI uses config profiles — no session to clear.")
+    print(f"Current profile: {os.getenv('OCI_PROFILE', 'foosball')}")
