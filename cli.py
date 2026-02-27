@@ -51,7 +51,8 @@ import queue
 
 # Load .env from ~/.hermes/.env first, then project root as dev fallback
 from dotenv import load_dotenv
-from hermes_constants import OPENROUTER_BASE_URL
+from hermes_constants import DEFAULT_MODEL
+from oci_client import get_oci_base_url
 
 _hermes_home = Path(os.getenv("HERMES_HOME", Path.home() / ".hermes"))
 _user_env = _hermes_home / ".env"
@@ -145,8 +146,8 @@ def load_cli_config() -> Dict[str, Any]:
     # Default configuration
     defaults = {
         "model": {
-            "default": "anthropic/claude-opus-4.6",
-            "base_url": OPENROUTER_BASE_URL,
+            "default": DEFAULT_MODEL,
+            "base_url": get_oci_base_url(),
             "provider": "auto",
         },
         "terminal": {
@@ -793,11 +794,11 @@ class HermesCLI:
         # Model can come from: CLI arg, LLM_MODEL env, OPENAI_MODEL env (custom endpoint), or config
         self.model = model or os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL") or CLI_CONFIG["model"]["default"]
         
-        # Base URL: custom endpoint (OPENAI_BASE_URL) takes precedence over OpenRouter
-        self.base_url = base_url or os.getenv("OPENAI_BASE_URL") or os.getenv("OPENROUTER_BASE_URL", CLI_CONFIG["model"]["base_url"])
-        
-        # API key: custom endpoint (OPENAI_API_KEY) takes precedence over OpenRouter
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY") or os.getenv("OPENROUTER_API_KEY")
+        # Base URL: custom endpoint (OPENAI_BASE_URL) takes precedence, then OCI GenAI
+        self.base_url = base_url or os.getenv("OPENAI_BASE_URL") or CLI_CONFIG["model"]["base_url"]
+
+        # API key: OCI auth is handled by oci-openai; "OCI" is a placeholder
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY") or "OCI"
 
         # Provider resolution: determines whether to use OAuth credentials or env var keys
         from hermes_cli.auth import resolve_provider
