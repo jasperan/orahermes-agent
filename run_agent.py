@@ -367,6 +367,7 @@ class AIAgent:
         
         # SQLite session store (optional -- provided by CLI or gateway)
         self._session_db = session_db
+        self._db_logged_count = 0  # Track messages already persisted to DB
         if self._session_db:
             try:
                 self._session_db.create_session(
@@ -576,20 +577,28 @@ class AIAgent:
                 tool_call_id=msg.get("tool_call_id"),
                 finish_reason=msg.get("finish_reason"),
             )
+            self._db_logged_count += 1
         except Exception as e:
             logger.debug("Session DB log_msg failed: %s", e)
 
     def _flush_messages_to_session_db(self, messages: List[Dict], conversation_history: List[Dict] = None):
-        """Persist any un-logged messages to the SQLite session store.
+        """Persist any un-logged messages to the session store.
 
         Called both at the normal end of run_conversation and from every early-
         return path so that tool calls, tool responses, and assistant messages
         are never lost even when the conversation errors out.
+
+        Skips messages already persisted by _log_msg_to_db (tracked via
+        _db_logged_count) to avoid duplicates.
         """
         if not self._session_db:
             return
         try:
-            start_idx = len(conversation_history) if conversation_history else 0
+            # Skip messages already logged individually by _log_msg_to_db
+            start_idx = max(
+                self._db_logged_count,
+                len(conversation_history) if conversation_history else 0,
+            )
             for msg in messages[start_idx:]:
                 role = msg.get("role", "unknown")
                 content = msg.get("content")
@@ -2641,6 +2650,13 @@ def main(
         print(f"   - Successful conversations → trajectory_samples.jsonl")
         print(f"   - Failed conversations → failed_trajectories.jsonl")
     
+    # Initialize session DB (Oracle if ORACLE_DSN is set, else SQLite)
+    from hermes_state import get_session_db
+    try:
+        session_db = get_session_db()
+    except Exception:
+        session_db = None
+
     # Initialize agent with provided parameters
     try:
         agent = AIAgent(
@@ -2652,7 +2668,8 @@ def main(
             disabled_toolsets=disabled_toolsets_list,
             save_trajectories=save_trajectories,
             verbose_logging=verbose,
-            log_prefix_chars=log_prefix_chars
+            log_prefix_chars=log_prefix_chars,
+            session_db=session_db,
         )
     except RuntimeError as e:
         print(f"❌ Failed to initialize agent: {e}")

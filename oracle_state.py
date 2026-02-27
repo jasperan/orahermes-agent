@@ -5,7 +5,7 @@ import os
 import time
 import uuid
 import json
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import oracledb
 
@@ -14,13 +14,18 @@ oracledb.defaults.fetch_lobs = False
 
 
 class OracleSessionDB:
-    """Drop-in replacement for SessionDB using Oracle Database."""
+    """Drop-in replacement for SessionDB using Oracle Database.
+
+    Method signatures match hermes_state.SessionDB exactly so callers
+    (run_agent.py, cli.py, gateway/) can use either backend transparently.
+    """
 
     def __init__(
         self,
         dsn: str = None,
         user: str = None,
         password: str = None,
+        **kwargs,
     ):
         self.dsn = dsn or os.getenv("ORACLE_DSN", "localhost:1521/FREEPDB1")
         self.user = user or os.getenv("ORACLE_USER", "hermes")
@@ -37,16 +42,21 @@ class OracleSessionDB:
     def _get_conn(self):
         return self.pool.acquire()
 
+    # =========================================================================
+    # Session lifecycle (matches SessionDB interface)
+    # =========================================================================
+
     def create_session(
         self,
+        session_id: str,
         source: str,
-        model: str,
-        user_id: str = None,
-        model_config: dict = None,
+        model: str = None,
+        model_config: Dict[str, Any] = None,
         system_prompt: str = None,
+        user_id: str = None,
         parent_session_id: str = None,
     ) -> str:
-        sid = str(uuid.uuid4())
+        """Create a new session record. Returns the session_id."""
         with self._get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -55,54 +65,104 @@ class OracleSessionDB:
                         parent_session_id, started_at)
                        VALUES (:1, :2, :3, :4, :5, :6, :7, :8)""",
                     [
-                        sid, source, user_id, model,
+                        session_id, source, user_id, model,
                         json.dumps(model_config) if model_config else None,
                         system_prompt, parent_session_id, time.time(),
                     ],
                 )
             conn.commit()
-        return sid
+        return session_id
 
-    def end_session(self, session_id: str, reason: str = "normal"):
+    def end_session(self, session_id: str, end_reason: str = "normal"):
+        """Mark a session as ended."""
         with self._get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """UPDATE sessions SET ended_at = :1, end_reason = :2 WHERE id = :3""",
-                    [time.time(), reason, session_id],
+                    [time.time(), end_reason, session_id],
                 )
             conn.commit()
 
-    def add_message(
+    def update_system_prompt(self, session_id: str, system_prompt: str) -> None:
+        """Store the full assembled system prompt snapshot."""
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE sessions SET system_prompt = :1 WHERE id = :2",
+                    [system_prompt, session_id],
+                )
+            conn.commit()
+
+    def update_token_counts(
+        self, session_id: str, input_tokens: int = 0, output_tokens: int = 0
+    ) -> None:
+        """Increment token counters on a session."""
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """UPDATE sessions
+                       SET input_tokens = input_tokens + :1,
+                           output_tokens = output_tokens + :2
+                       WHERE id = :3""",
+                    [input_tokens, output_tokens, session_id],
+                )
+            conn.commit()
+
+    # =========================================================================
+    # Message storage (matches SessionDB interface)
+    # =========================================================================
+
+    def append_message(
         self,
         session_id: str,
         role: str,
         content: str = None,
-        tool_call_id: str = None,
-        tool_calls: list = None,
         tool_name: str = None,
+        tool_calls: Any = None,
+        tool_call_id: str = None,
         token_count: int = None,
         finish_reason: str = None,
-    ):
+    ) -> int:
+        """Append a message to a session. Returns the message row ID."""
         with self._get_conn() as conn:
             with conn.cursor() as cur:
+                msg_id_var = cur.var(int)
                 cur.execute(
                     """INSERT INTO messages
                        (session_id, role, content, tool_call_id, tool_calls,
                         tool_name, timestamp_val, token_count, finish_reason)
-                       VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9)""",
+                       VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9)
+                       RETURNING id INTO :10""",
                     [
                         session_id, role, content, tool_call_id,
                         json.dumps(tool_calls) if tool_calls else None,
                         tool_name, time.time(), token_count, finish_reason,
+                        msg_id_var,
                     ],
                 )
-                cur.execute(
-                    """UPDATE sessions SET message_count = message_count + 1 WHERE id = :1""",
-                    [session_id],
-                )
-            conn.commit()
+                msg_id = msg_id_var.getvalue()[0]
 
-    def get_messages(self, session_id: str) -> list[dict]:
+                # Update counters
+                is_tool_related = role == "tool" or tool_calls is not None
+                if is_tool_related:
+                    cur.execute(
+                        """UPDATE sessions SET message_count = message_count + 1,
+                           tool_call_count = tool_call_count + 1 WHERE id = :1""",
+                        [session_id],
+                    )
+                else:
+                    cur.execute(
+                        """UPDATE sessions SET message_count = message_count + 1
+                           WHERE id = :1""",
+                        [session_id],
+                    )
+            conn.commit()
+        return msg_id
+
+    # Keep add_message as alias for backward compat with tests
+    add_message = append_message
+
+    def get_messages(self, session_id: str) -> list:
         with self._get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -146,7 +206,7 @@ class OracleSessionDB:
                     "input_tokens": row[8], "output_tokens": row[9],
                 }
 
-    def search_messages(self, query: str, limit: int = 20) -> list[dict]:
+    def search_messages(self, query: str, limit: int = 20) -> list:
         """Full-text search using Oracle Text CONTAINS with LIKE fallback."""
         with self._get_conn() as conn:
             with conn.cursor() as cur:
@@ -156,7 +216,7 @@ class OracleSessionDB:
                         "BEGIN CTX_DDL.SYNC_INDEX('idx_messages_content_ft'); END;"
                     )
                 except Exception:
-                    pass  # Index may not exist or not need sync
+                    pass
                 try:
                     cur.execute(
                         """SELECT m.session_id, m.role, m.content, m.timestamp_val,
@@ -171,7 +231,6 @@ class OracleSessionDB:
                 except Exception:
                     results = []
                 if not results:
-                    # Fallback to LIKE if Oracle Text returns no results
                     cur.execute(
                         """SELECT m.session_id, m.role, m.content, m.timestamp_val,
                                   1 as relevance
@@ -191,21 +250,7 @@ class OracleSessionDB:
                     for r in results
                 ]
 
-    def update_token_counts(
-        self, session_id: str, input_tokens: int, output_tokens: int
-    ):
-        with self._get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """UPDATE sessions
-                       SET input_tokens = input_tokens + :1,
-                           output_tokens = output_tokens + :2
-                       WHERE id = :3""",
-                    [input_tokens, output_tokens, session_id],
-                )
-            conn.commit()
-
-    def list_sessions(self, source: str = None, limit: int = 50) -> list[dict]:
+    def list_sessions(self, source: str = None, limit: int = 50) -> list:
         with self._get_conn() as conn:
             with conn.cursor() as cur:
                 if source:
