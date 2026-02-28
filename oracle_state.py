@@ -206,8 +206,22 @@ class OracleSessionDB:
                     "input_tokens": row[8], "output_tokens": row[9],
                 }
 
-    def search_messages(self, query: str, limit: int = 20) -> list:
-        """Full-text search using Oracle Text CONTAINS with LIKE fallback."""
+    def search_messages(
+        self,
+        query: str,
+        source_filter: list = None,
+        role_filter: list = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list:
+        """Full-text search using Oracle Text CONTAINS with LIKE fallback.
+
+        Accepts the same kwargs as SQLite SessionDB.search_messages so tools
+        like session_search can call either backend transparently.
+        """
+        if not query or not query.strip():
+            return []
+
         with self._get_conn() as conn:
             with conn.cursor() as cur:
                 # Sync Oracle Text index before search
@@ -217,30 +231,58 @@ class OracleSessionDB:
                     )
                 except Exception:
                     pass
+
+                # Build dynamic WHERE filters
+                extra_where = ""
+                params_extra = []
+                param_idx = 3  # :1=query, :2=limit already used
+
+                if source_filter:
+                    placeholders = ",".join(f":{param_idx + i}" for i in range(len(source_filter)))
+                    extra_where += f" AND m.session_id IN (SELECT id FROM sessions WHERE source IN ({placeholders}))"
+                    params_extra.extend(source_filter)
+                    param_idx += len(source_filter)
+
+                if role_filter:
+                    placeholders = ",".join(f":{param_idx + i}" for i in range(len(role_filter)))
+                    extra_where += f" AND m.role IN ({placeholders})"
+                    params_extra.extend(role_filter)
+                    param_idx += len(role_filter)
+
+                # Try Oracle Text CONTAINS first
                 try:
                     cur.execute(
-                        """SELECT m.session_id, m.role, m.content, m.timestamp_val,
+                        f"""SELECT m.session_id, m.role, m.content, m.timestamp_val,
                                   SCORE(1) as relevance
                            FROM messages m
-                           WHERE CONTAINS(m.content, :1, 1) > 0
+                           WHERE CONTAINS(m.content, :1, 1) > 0{extra_where}
                            ORDER BY relevance DESC
-                           FETCH FIRST :2 ROWS ONLY""",
-                        [query, limit],
+                           OFFSET :o ROWS FETCH NEXT :l ROWS ONLY""",
+                        dict(
+                            {str(i+3): v for i, v in enumerate(params_extra)},
+                            **{"1": query, "o": offset, "l": limit}
+                        ),
                     )
                     results = cur.fetchall()
                 except Exception:
                     results = []
+
+                # Fallback to LIKE
                 if not results:
                     cur.execute(
-                        """SELECT m.session_id, m.role, m.content, m.timestamp_val,
+                        f"""SELECT m.session_id, m.role, m.content, m.timestamp_val,
                                   1 as relevance
                            FROM messages m
-                           WHERE m.content LIKE '%' || :1 || '%'
+                           WHERE m.content LIKE '%' || :1 || '%'{extra_where}
                            ORDER BY m.timestamp_val DESC
-                           FETCH FIRST :2 ROWS ONLY""",
-                        [query, limit],
+                           OFFSET :o ROWS FETCH NEXT :l ROWS ONLY""",
+                        dict(
+                            {str(i+3): v for i, v in enumerate(params_extra)},
+                            **{"1": query, "o": offset, "l": limit}
+                        ),
                     )
                     results = cur.fetchall()
+
                 return [
                     {
                         "session_id": r[0], "role": r[1],

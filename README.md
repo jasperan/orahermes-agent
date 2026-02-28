@@ -11,6 +11,8 @@
   <a href="https://docs.oracle.com/en-us/iaas/Content/generative-ai/home.htm"><img src="https://img.shields.io/badge/OCI-GenAI-F80000.svg?style=for-the-badge&logo=oracle&logoColor=white" alt="OCI GenAI"></a>&nbsp;
   <a href="https://docs.oracle.com/en-us/iaas/Content/search-opensearch/home.htm"><img src="https://img.shields.io/badge/Oracle-Text_Search-F80000.svg?style=for-the-badge&logo=oracle&logoColor=white" alt="Oracle Text"></a>&nbsp;
   <a href="https://x.ai/"><img src="https://img.shields.io/badge/xAI-Grok-000000.svg?style=for-the-badge&logo=x&logoColor=white" alt="xAI Grok"></a>&nbsp;
+  <a href="https://ollama.com/"><img src="https://img.shields.io/badge/Backend-Ollama-00DC82.svg?style=for-the-badge&logo=ollama&logoColor=white" alt="Ollama"></a>&nbsp;
+  <a href="https://docs.oracle.com/en-us/iaas/Content/generative-ai/home.htm"><img src="https://img.shields.io/badge/Backend-OCI_GenAI_(xAI)-F80000.svg?style=for-the-badge&logo=oracle&logoColor=white" alt="OCI GenAI xAI"></a>&nbsp;
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11+-3776AB.svg?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>&nbsp;
   <a href="https://github.com/NousResearch/hermes-agent/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge" alt="License: MIT"></a>
 </p>
