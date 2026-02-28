@@ -7,11 +7,12 @@
 **Hermes Agent powered by Oracle AI Database & OCI GenAI**
 
 <p align="center">
-  <a href="https://www.oracle.com/database/free/"><img src="https://img.shields.io/badge/Oracle-26ai_Free-F80000.svg?style=for-the-badge&logo=oracle&logoColor=white" alt="Oracle Database"></a>
-  <a href="https://docs.oracle.com/en-us/iaas/Content/generative-ai/home.htm"><img src="https://img.shields.io/badge/OCI-GenAI-F80000.svg?style=for-the-badge&logo=oracle&logoColor=white" alt="OCI GenAI"></a>
-  <a href="https://x.ai/"><img src="https://img.shields.io/badge/xAI-Grok-000000.svg?style=for-the-badge&logo=x&logoColor=white" alt="xAI Grok"></a>
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11+-3776AB.svg?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>
-  <a href="https://github.com/NousResearch/hermes-agent/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge" alt="License: MIT"></a>
+  <a href="https://www.oracle.com/database/free/"><img src="https://img.shields.io/badge/Oracle-26ai_Free-F80000.svg?style=for-the-badge&logo=oracle&logoColor=white" alt="Oracle Database"></a>&nbsp;
+  <a href="https://docs.oracle.com/en-us/iaas/Content/generative-ai/home.htm"><img src="https://img.shields.io/badge/OCI-GenAI-F80000.svg?style=for-the-badge&logo=oracle&logoColor=white" alt="OCI GenAI"></a>&nbsp;
+  <a href="https://docs.oracle.com/en-us/iaas/Content/search-opensearch/home.htm"><img src="https://img.shields.io/badge/Oracle-Text_Search-F80000.svg?style=for-the-badge&logo=oracle&logoColor=white" alt="Oracle Text"></a>&nbsp;
+  <a href="https://x.ai/"><img src="https://img.shields.io/badge/xAI-Grok-000000.svg?style=for-the-badge&logo=x&logoColor=white" alt="xAI Grok"></a>&nbsp;
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11+-3776AB.svg?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>&nbsp;
+  <a href="https://github.com/NousResearch/hermes-agent/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge" alt="License: MIT"></a>
 </p>
 
 ---
@@ -203,8 +204,8 @@ Based on [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agen
 
 <div align="center">
 
-[![GitHub](https://img.shields.io/badge/GitHub-jasperan-181717.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/jasperan)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-jasperan-0A66C2.svg?style=for-the-badge&logo=linkedin&logoColor=white)](https://linkedin.com/in/jasperan)
-[![Oracle Database Free](https://img.shields.io/badge/Oracle-Database_Free-F80000.svg?style=for-the-badge&logo=oracle&logoColor=white)](https://www.oracle.com/database/free/)
+[![GitHub](https://img.shields.io/badge/GitHub-jasperan-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/jasperan)&nbsp;
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-jasperan-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/jasperan/)&nbsp;
+[![Oracle](https://img.shields.io/badge/Oracle_Database-Free-F80000?style=for-the-badge&logo=oracle&logoColor=white)](https://www.oracle.com/database/free/)
 
 </div>
