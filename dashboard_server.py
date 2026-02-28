@@ -17,8 +17,12 @@ from urllib.parse import urlparse, parse_qs
 import threading
 
 import oracledb
+import tiktoken
 
 oracledb.defaults.fetch_lobs = False
+
+# Initialize tiktoken encoder once (cl100k_base works well for modern LLMs)
+ENCODER = tiktoken.get_encoding("cl100k_base")
 
 DSN = os.getenv("ORACLE_DSN", "localhost:1521/FREEPDB1")
 USER = os.getenv("ORACLE_USER", "hermes")
@@ -167,6 +171,58 @@ def query_content_lengths():
     return [{"role": r[0], "length": r[1]} for r in rows]
 
 
+def query_token_estimates():
+    """Estimate token counts from message content using tiktoken.
+
+    Returns per-role totals, per-session breakdown, and grand totals.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT m.session_id, m.role, m.content, m.tool_calls
+        FROM messages m ORDER BY m.id
+    """)
+    rows = cur.fetchall()
+    conn.close()
+
+    role_totals = {}
+    session_totals = {}
+    grand_total = 0
+
+    for session_id, role, content, tool_calls in rows:
+        tokens = 0
+        if content:
+            tokens += len(ENCODER.encode(content))
+        if tool_calls:
+            tc_str = tool_calls if isinstance(tool_calls, str) else json.dumps(tool_calls)
+            tokens += len(ENCODER.encode(tc_str))
+
+        grand_total += tokens
+        role_totals[role] = role_totals.get(role, 0) + tokens
+
+        if session_id not in session_totals:
+            session_totals[session_id] = {"input": 0, "output": 0, "total": 0}
+        if role == "user":
+            session_totals[session_id]["input"] += tokens
+        elif role == "assistant":
+            session_totals[session_id]["output"] += tokens
+        session_totals[session_id]["total"] += tokens
+
+    # Per-session list sorted by session order
+    session_list = [
+        {"session_id": sid[:16], "input": v["input"], "output": v["output"], "total": v["total"]}
+        for sid, v in session_totals.items()
+    ]
+
+    return {
+        "grand_total": grand_total,
+        "by_role": [{"role": k, "tokens": v} for k, v in sorted(role_totals.items(), key=lambda x: -x[1])],
+        "by_session": session_list,
+        "estimated_input": role_totals.get("user", 0),
+        "estimated_output": role_totals.get("assistant", 0),
+    }
+
+
 DASHBOARD_HTML = None
 
 
@@ -204,6 +260,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self._json_response(query_tool_usage())
         elif path == "/api/content_lengths":
             self._json_response(query_content_lengths())
+        elif path == "/api/tokens":
+            self._json_response(query_token_estimates())
         else:
             self.send_error(404)
 

@@ -115,7 +115,7 @@
   /* KPI Cards */
   .kpi-row {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(6, 1fr);
     gap: 1rem;
   }
 
@@ -146,6 +146,7 @@
   .kpi-card:nth-child(3)::before { background: var(--green); }
   .kpi-card:nth-child(4)::before { background: var(--purple); }
   .kpi-card:nth-child(5)::before { background: var(--yellow); }
+  .kpi-card:nth-child(6)::before { background: var(--cyan); }
 
   .kpi-label {
     font-size: 0.75rem;
@@ -167,6 +168,7 @@
   .kpi-card:nth-child(3) .kpi-value { color: var(--green); }
   .kpi-card:nth-child(4) .kpi-value { color: var(--purple); }
   .kpi-card:nth-child(5) .kpi-value { color: var(--yellow); }
+  .kpi-card:nth-child(6) .kpi-value { color: var(--cyan); }
 
   .kpi-delta {
     font-size: 0.7rem;
@@ -365,8 +367,11 @@
   }
 
   /* Responsive */
-  @media (max-width: 1200px) {
+  @media (max-width: 1400px) {
     .kpi-row { grid-template-columns: repeat(3, 1fr); }
+  }
+
+  @media (max-width: 1200px) {
     .chart-row { grid-template-columns: 1fr; }
     .chart-row.triple { grid-template-columns: 1fr 1fr; }
     .chart-card.wide { grid-column: span 1; }
@@ -411,12 +416,19 @@
       <div class="kpi-delta" id="kpi-tools-delta"></div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">Input Tokens</div>
+      <div class="kpi-label">Est. Input Tokens</div>
       <div class="kpi-value" id="kpi-input-tokens">—</div>
+      <div class="kpi-delta" id="kpi-input-tokens-delta"></div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">Output Tokens</div>
+      <div class="kpi-label">Est. Output Tokens</div>
       <div class="kpi-value" id="kpi-output-tokens">—</div>
+      <div class="kpi-delta" id="kpi-output-tokens-delta"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Total Est. Tokens</div>
+      <div class="kpi-value" id="kpi-total-tokens">—</div>
+      <div class="kpi-delta" id="kpi-total-tokens-delta"></div>
     </div>
   </div>
 
@@ -432,7 +444,19 @@
     </div>
   </div>
 
-  <!-- Charts row 2 -->
+  <!-- Charts row 2: Token estimation -->
+  <div class="chart-row">
+    <div class="chart-card">
+      <div class="chart-title"><span class="icon" style="background:rgba(6,182,212,0.2);color:var(--cyan);">&#9670;</span> Token Usage by Role (Estimated)</div>
+      <div id="chart-token-roles"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title"><span class="icon" style="background:rgba(248,0,0,0.2);color:var(--accent2);">&#9644;</span> Tokens per Session (Input vs Output)</div>
+      <div id="chart-token-sessions"></div>
+    </div>
+  </div>
+
+  <!-- Charts row 3 -->
   <div class="chart-row">
     <div class="chart-card wide">
       <div class="chart-title"><span class="icon" style="background:rgba(6,182,212,0.2);color:var(--cyan);">&#9644;</span> Messages per Session (Timeline)</div>
@@ -440,7 +464,7 @@
     </div>
   </div>
 
-  <!-- Charts row 3 -->
+  <!-- Charts row 4 -->
   <div class="chart-row">
     <div class="chart-card wide">
       <div class="chart-title"><span class="icon" style="background:rgba(248,0,0,0.2);color:var(--accent2);">&#9632;</span> Content Length Distribution</div>
@@ -477,6 +501,7 @@ const ROLE_COLORS = { user: '#3b82f6', assistant: '#8b5cf6', tool: '#f59e0b' };
 const CHART_COLORS = ['#f80000', '#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#06b6d4', '#ff6b35', '#ec4899'];
 
 let prevOverview = null;
+let prevTokens = null;
 let prevMessageCount = 0;
 let tooltip = d3.select('#tooltip');
 
@@ -487,8 +512,6 @@ async function updateKPIs() {
   animateValue('kpi-sessions', data.total_sessions);
   animateValue('kpi-messages', data.total_messages);
   animateValue('kpi-tools', data.tool_messages);
-  animateValue('kpi-input-tokens', data.total_input_tokens);
-  animateValue('kpi-output-tokens', data.total_output_tokens);
 
   if (prevOverview) {
     const ds = data.total_sessions - prevOverview.total_sessions;
@@ -766,6 +789,169 @@ async function updateLengths() {
   });
 }
 
+// ── Token estimation ──
+async function updateTokens() {
+  const data = await fetch(`${API}/api/tokens`).then(r => r.json());
+
+  // Update KPI cards
+  animateValue('kpi-input-tokens', data.estimated_input);
+  animateValue('kpi-output-tokens', data.estimated_output);
+  animateValue('kpi-total-tokens', data.grand_total);
+
+  if (prevTokens) {
+    const di = data.estimated_input - prevTokens.estimated_input;
+    const do_ = data.estimated_output - prevTokens.estimated_output;
+    const dt = data.grand_total - prevTokens.grand_total;
+    if (di > 0) document.getElementById('kpi-input-tokens-delta').textContent = `+${di.toLocaleString()} new`;
+    if (do_ > 0) document.getElementById('kpi-output-tokens-delta').textContent = `+${do_.toLocaleString()} new`;
+    if (dt > 0) document.getElementById('kpi-total-tokens-delta').textContent = `+${dt.toLocaleString()} new`;
+  }
+  prevTokens = data;
+
+  // Token by role donut
+  updateTokenRolesChart(data.by_role);
+  // Tokens per session stacked bar
+  updateTokenSessionsChart(data.by_session);
+}
+
+function updateTokenRolesChart(data) {
+  const container = d3.select('#chart-token-roles');
+  container.selectAll('*').remove();
+
+  if (!data.length) {
+    container.append('div').style('color', '#64748b').style('text-align', 'center')
+      .style('padding-top', '80px').text('No token data yet');
+    return;
+  }
+
+  const width = container.node().clientWidth;
+  const size = Math.min(width, 240);
+  const radius = size / 2;
+
+  const svg = container.append('svg')
+    .attr('width', width).attr('height', size)
+    .append('g')
+    .attr('transform', `translate(${width/2},${radius})`);
+
+  const pie = d3.pie().value(d => d.tokens).sort(null).padAngle(0.03);
+  const arc = d3.arc().innerRadius(radius * 0.55).outerRadius(radius * 0.88);
+  const total = d3.sum(data, d => d.tokens);
+
+  svg.selectAll('path')
+    .data(pie(data))
+    .join('path')
+    .attr('d', arc)
+    .attr('fill', (d, i) => ROLE_COLORS[d.data.role] || CHART_COLORS[i])
+    .attr('stroke', '#0a0e17').attr('stroke-width', 2)
+    .style('cursor', 'pointer')
+    .on('mouseover', function(event, d) {
+      tooltip.style('opacity', 1)
+        .html(`<strong>${d.data.role}</strong><br>${d.data.tokens.toLocaleString()} tokens (${Math.round(d.data.tokens/total*100)}%)`)
+        .style('left', (event.pageX + 12) + 'px')
+        .style('top', (event.pageY - 20) + 'px');
+      d3.select(this).attr('opacity', 0.8);
+    })
+    .on('mouseout', function() {
+      tooltip.style('opacity', 0);
+      d3.select(this).attr('opacity', 1);
+    });
+
+  // Center text
+  svg.append('text').attr('text-anchor', 'middle').attr('dy', '-0.1em')
+    .attr('fill', '#e2e8f0').attr('font-size', '1.3rem').attr('font-weight', '800')
+    .text(total.toLocaleString());
+  svg.append('text').attr('text-anchor', 'middle').attr('dy', '1.3em')
+    .attr('fill', '#64748b').attr('font-size', '0.7rem').attr('font-weight', '600')
+    .text('TOKENS');
+
+  // Legend
+  const legend = container.append('div').attr('class', 'legend');
+  data.forEach((d, i) => {
+    const item = legend.append('div').attr('class', 'legend-item');
+    item.append('div').attr('class', 'legend-swatch')
+      .style('background', ROLE_COLORS[d.role] || CHART_COLORS[i]);
+    item.append('span').text(`${d.role} (${d.tokens.toLocaleString()})`);
+  });
+}
+
+function updateTokenSessionsChart(data) {
+  const container = d3.select('#chart-token-sessions');
+  container.selectAll('*').remove();
+
+  if (!data.length) {
+    container.append('div').style('color', '#64748b').style('text-align', 'center')
+      .style('padding-top', '80px').text('No token data yet');
+    return;
+  }
+
+  const margin = { top: 10, right: 30, bottom: 40, left: 60 };
+  const width = container.node().clientWidth - margin.left - margin.right;
+  const height = 240;
+
+  const svg = container.append('svg')
+    .attr('width', width + margin.left + margin.right)
+    .attr('height', height + margin.top + margin.bottom)
+    .append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  const x = d3.scaleBand().domain(data.map((d, i) => i)).range([0, width]).padding(0.25);
+  const maxVal = d3.max(data, d => d.total) || 1;
+  const y = d3.scaleLinear().domain([0, maxVal]).nice().range([height, 0]);
+
+  // Grid
+  svg.append('g').attr('class', 'grid')
+    .call(d3.axisLeft(y).tickSize(-width).tickFormat(''))
+    .select('.domain').remove();
+
+  // Input tokens (bottom, blue)
+  svg.selectAll('.bar-input')
+    .data(data)
+    .join('rect')
+    .attr('class', 'bar')
+    .attr('x', (d, i) => x(i))
+    .attr('y', d => y(d.input + d.output))
+    .attr('width', x.bandwidth())
+    .attr('height', d => height - y(d.input))
+    .attr('fill', '#3b82f6')
+    .attr('rx', 3)
+    .on('mouseover', function(event, d) {
+      tooltip.style('opacity', 1)
+        .html(`<strong>${d.session_id}...</strong><br>Input: ${d.input.toLocaleString()}<br>Output: ${d.output.toLocaleString()}<br>Total: ${d.total.toLocaleString()} tokens`)
+        .style('left', (event.pageX + 12) + 'px')
+        .style('top', (event.pageY - 20) + 'px');
+    })
+    .on('mouseout', () => tooltip.style('opacity', 0));
+
+  // Output tokens (top, purple)
+  svg.selectAll('.bar-output')
+    .data(data)
+    .join('rect')
+    .attr('class', 'bar')
+    .attr('x', (d, i) => x(i))
+    .attr('y', d => y(d.output))
+    .attr('width', x.bandwidth())
+    .attr('height', d => height - y(d.output))
+    .attr('fill', '#8b5cf6')
+    .attr('rx', 3)
+    .style('pointer-events', 'none');
+
+  svg.append('g').attr('class', 'axis')
+    .attr('transform', `translate(0,${height})`)
+    .call(d3.axisBottom(x).tickValues(
+      data.length > 20 ? x.domain().filter((d, i) => i % Math.ceil(data.length / 10) === 0) : x.domain()
+    ).tickFormat(i => data[i] ? data[i].session_id.slice(0, 8) : ''))
+    .selectAll('text').attr('transform', 'rotate(-35)').style('text-anchor', 'end');
+
+  svg.append('g').attr('class', 'axis').call(d3.axisLeft(y).ticks(5).tickFormat(d3.format('.2s')));
+
+  // Legend
+  const lg = container.append('div').attr('class', 'legend');
+  [['Input (user)', '#3b82f6'], ['Output (assistant)', '#8b5cf6']].forEach(([label, color]) => {
+    const item = lg.append('div').attr('class', 'legend-item');
+    item.append('div').attr('class', 'legend-swatch').style('background', color);
+    item.append('span').text(label);
+  });
+}
+
 // ── Sessions table ──
 async function updateSessions() {
   const data = await fetch(`${API}/api/sessions`).then(r => r.json());
@@ -817,6 +1003,7 @@ async function refresh() {
   try {
     await Promise.all([
       updateKPIs(),
+      updateTokens(),
       updateRoles(),
       updateTools(),
       updateTimeline(),
@@ -838,7 +1025,7 @@ setInterval(refresh, REFRESH_MS);
 
 // Resize handler
 window.addEventListener('resize', () => {
-  updateRoles(); updateTools(); updateTimeline(); updateLengths();
+  updateRoles(); updateTools(); updateTimeline(); updateLengths(); updateTokens();
 });
 </script>
 </body>
