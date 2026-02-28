@@ -192,6 +192,34 @@ All features from [NousResearch/hermes-agent](https://github.com/NousResearch/he
 
 ---
 
+## Live Dashboard
+
+A real-time D3.js dashboard visualizes all data orahermes-agent produces in Oracle Database -- sessions, messages, tool usage, token counts, and content lengths. Auto-refreshes every 3 seconds.
+
+```bash
+ORACLE_DSN=localhost:1521/FREEPDB1 ORACLE_USER=hermes ORACLE_PASSWORD=<password> \
+    python dashboard_server.py --port 8501
+```
+
+<p align="center">
+  <img src="assets/dashboard-viewport.png" alt="Dashboard KPIs" width="100%">
+</p>
+
+<p align="center">
+  <img src="assets/dashboard-full.png" alt="Full Dashboard" width="100%">
+</p>
+
+**Charts included:**
+- KPI cards (sessions, messages, tool calls, input/output tokens) with animated counters and delta indicators
+- Role distribution donut chart (user / assistant / tool)
+- Tool usage horizontal bar chart (memory, session_search, execute_code, etc.)
+- Messages per session timeline with tool call overlay
+- Content length scatter plot colored by role
+- Recent sessions table with model, message count, and status
+- Live message feed with role-colored entries
+
+---
+
 ## License
 
 MIT -- same as upstream. See [LICENSE](LICENSE).
