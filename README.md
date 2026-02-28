@@ -210,9 +210,11 @@ ORACLE_DSN=localhost:1521/FREEPDB1 ORACLE_USER=hermes ORACLE_PASSWORD=<password>
 </p>
 
 **Charts included:**
-- KPI cards (sessions, messages, tool calls, input/output tokens) with animated counters and delta indicators
+- KPI cards (sessions, messages, tool calls, estimated input/output/total tokens) with animated counters and delta indicators
 - Role distribution donut chart (user / assistant / tool)
 - Tool usage horizontal bar chart (memory, session_search, execute_code, etc.)
+- Token usage by role donut chart (tiktoken-estimated token counts per role)
+- Tokens per session stacked bar chart (input vs output breakdown)
 - Messages per session timeline with tool call overlay
 - Content length scatter plot colored by role
 - Recent sessions table with model, message count, and status
