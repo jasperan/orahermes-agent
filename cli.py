@@ -147,8 +147,8 @@ def load_cli_config() -> Dict[str, Any]:
     defaults = {
         "model": {
             "default": DEFAULT_MODEL,
-            "base_url": get_oci_base_url(),
-            "provider": "auto",
+            "base_url": None,
+            "provider": "ollama",
         },
         "terminal": {
             "env_type": "local",
@@ -794,11 +794,29 @@ class HermesCLI:
         # Model can come from: CLI arg, LLM_MODEL env, OPENAI_MODEL env (custom endpoint), or config
         self.model = model or os.getenv("LLM_MODEL") or os.getenv("OPENAI_MODEL") or CLI_CONFIG["model"]["default"]
         
-        # Base URL: custom endpoint (OPENAI_BASE_URL) takes precedence, then OCI GenAI
-        self.base_url = base_url or os.getenv("OPENAI_BASE_URL") or CLI_CONFIG["model"]["base_url"]
+        # Base URL: explicit > env > provider-specific default
+        from hermes_constants import OLLAMA_BASE_URL
+        from hermes_cli.config import load_config
+        _cfg_provider = load_config().get("provider", "ollama")
+        if base_url:
+            self.base_url = base_url
+        elif os.getenv("OPENAI_BASE_URL"):
+            self.base_url = os.getenv("OPENAI_BASE_URL")
+        elif _cfg_provider == "oci":
+            self.base_url = get_oci_base_url()
+        else:
+            self.base_url = OLLAMA_BASE_URL
 
-        # API key: OCI auth is handled by oci-openai; "OCI" is a placeholder
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY") or "OCI"
+        # API key: OCI auth is handled by oci-openai SDK (signature-based, not bearer token).
+        # Only use OPENAI_API_KEY when the base URL points to a non-OCI endpoint,
+        # otherwise the bearer token gets sent to OCI GenAI and causes a 404.
+        _is_oci_endpoint = "oci.oraclecloud.com" in (self.base_url or "")
+        if _is_oci_endpoint:
+            self.api_key = api_key or None
+        elif _cfg_provider == "ollama":
+            self.api_key = api_key or "ollama"
+        else:
+            self.api_key = api_key or os.getenv("OPENAI_API_KEY") or ""
 
         # Provider resolution: determines whether to use OAuth credentials or env var keys
         from hermes_cli.auth import resolve_provider
@@ -1063,7 +1081,8 @@ class HermesCLI:
         if self.enabled_toolsets and "all" not in self.enabled_toolsets:
             toolsets_info = f" [dim #B8860B]·[/] [#CD7F32]toolsets: {', '.join(self.enabled_toolsets)}[/]"
 
-        provider_info = f" [dim #B8860B]·[/] [dim]provider: {self.provider}[/]"
+        provider_display = {"ollama": "Ollama (local)", "oci": "OCI GenAI", "custom": "Custom"}.get(self.provider, self.provider)
+        provider_info = f" [dim #B8860B]·[/] [dim]provider: {provider_display}[/]"
         if self.provider == "nous" and self._nous_key_source:
             provider_info += f" [dim #B8860B]·[/] [dim]key: {self._nous_key_source}[/]"
 
