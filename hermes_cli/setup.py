@@ -612,202 +612,170 @@ def run_setup_wizard(args):
     # Step 1: Inference Provider Selection
     # =========================================================================
     print_header("Inference Provider")
-    print_info("Choose how to connect to your main chat model.")
+    print_info("Choose how to connect to your AI model.")
     print()
 
-    # Detect current provider state
-    from hermes_cli.auth import (
-        get_active_provider, get_provider_auth_state, PROVIDER_REGISTRY,
-        format_auth_error, AuthError, fetch_nous_models,
-        resolve_nous_runtime_credentials, _update_config_for_provider,
-    )
-    existing_custom = get_env_value("OPENAI_BASE_URL")
-    existing_or = get_env_value("OPENROUTER_API_KEY")
-    active_oauth = get_active_provider()
-
-    # Detect if any provider is already configured
-    has_any_provider = bool(active_oauth or existing_custom or existing_or)
-    
-    # Build "keep current" label
-    if active_oauth and active_oauth in PROVIDER_REGISTRY:
-        keep_label = f"Keep current ({PROVIDER_REGISTRY[active_oauth].name})"
-    elif existing_custom:
-        keep_label = f"Keep current (Custom: {existing_custom})"
-    elif existing_or:
-        keep_label = "Keep current (OpenRouter)"
-    else:
-        keep_label = None  # No provider configured — don't show "Keep current"
+    from hermes_cli.auth import PROVIDER_REGISTRY
 
     provider_choices = [
-        "Login with Nous Portal (Nous Research subscription)",
-        "OpenRouter API key (100+ models, pay-per-use)",
-        "Custom OpenAI-compatible endpoint (self-hosted / VLLM / etc.)",
+        "Ollama (local — runs models on this machine, no API key needed)",
+        "OCI GenAI (Oracle Cloud — xAI Grok, Llama, etc.)",
+        "Custom OpenAI-compatible endpoint",
     ]
-    if keep_label:
-        provider_choices.append(keep_label)
-    
-    # Default to "Keep current" if a provider exists, otherwise OpenRouter (most common)
-    default_provider = len(provider_choices) - 1 if has_any_provider else 1
-    
-    if not has_any_provider:
-        print_warning("An inference provider is required for Hermes to work.")
-        print()
-    
-    provider_idx = prompt_choice("Select your inference provider:", provider_choices, default_provider)
 
-    # Track which provider was selected for model step
-    selected_provider = None  # "nous", "openrouter", "custom", or None (keep)
-    nous_models = []  # populated if Nous login succeeds
+    # Detect current provider
+    current_provider = config.get("provider", "ollama")
+    provider_display = {"ollama": "Ollama", "oci": "OCI GenAI", "custom": "Custom"}.get(current_provider, current_provider)
+    provider_choices.append(f"Keep current ({provider_display})")
 
-    if provider_idx == 0:  # Nous Portal
-        selected_provider = "nous"
+    default_idx = {"ollama": 0, "oci": 1, "custom": 2}.get(current_provider, 0)
+
+    provider_idx = prompt_choice("Select your inference provider:", provider_choices, default_idx)
+
+    selected_provider = None
+
+    if provider_idx == 0:  # Ollama
+        selected_provider = "ollama"
         print()
-        print_header("Nous Portal Login")
-        print_info("This will open your browser to authenticate with Nous Portal.")
-        print_info("You'll need a Nous Research account with an active subscription.")
+        print_header("Ollama Setup")
+        print_info("Ollama runs models locally on your machine.")
+        print_info("Install from: https://ollama.com")
         print()
 
+        # Check if Ollama is running
+        import subprocess
         try:
-            from hermes_cli.auth import _login_nous, ProviderConfig
-            import argparse
-            mock_args = argparse.Namespace(
-                portal_url=None, inference_url=None, client_id=None,
-                scope=None, no_browser=False, timeout=15.0,
-                ca_bundle=None, insecure=False,
+            result = subprocess.run(
+                ["ollama", "list"], capture_output=True, text=True, timeout=5,
             )
-            pconfig = PROVIDER_REGISTRY["nous"]
-            _login_nous(mock_args, pconfig)
-
-            # Fetch models for the selection step
-            try:
-                creds = resolve_nous_runtime_credentials(
-                    min_key_ttl_seconds=5 * 60, timeout_seconds=15.0,
-                )
-                nous_models = fetch_nous_models(
-                    inference_base_url=creds.get("base_url", ""),
-                    api_key=creds.get("api_key", ""),
-                )
-            except Exception as e:
-                logger.debug("Could not fetch Nous models after login: %s", e)
-
-        except SystemExit:
-            print_warning("Nous Portal login was cancelled or failed.")
-            print_info("You can try again later with: hermes login")
-            selected_provider = None
-        except Exception as e:
-            print_error(f"Login failed: {e}")
-            print_info("You can try again later with: hermes login")
-            selected_provider = None
-
-    elif provider_idx == 1:  # OpenRouter
-        selected_provider = "openrouter"
-        print()
-        print_header("OpenRouter API Key")
-        print_info("OpenRouter provides access to 100+ models from multiple providers.")
-        print_info("Get your API key at: https://openrouter.ai/keys")
-
-        if existing_or:
-            print_info(f"Current: {existing_or[:8]}... (configured)")
-            if prompt_yes_no("Update OpenRouter API key?", False):
-                api_key = prompt("  OpenRouter API key", password=True)
-                if api_key:
-                    save_env_value("OPENROUTER_API_KEY", api_key)
-                    print_success("OpenRouter API key updated")
-        else:
-            api_key = prompt("  OpenRouter API key", password=True)
-            if api_key:
-                save_env_value("OPENROUTER_API_KEY", api_key)
-                print_success("OpenRouter API key saved")
+            if result.returncode == 0:
+                print_success("Ollama is installed and running!")
+                lines = result.stdout.strip().split("\n")
+                if len(lines) > 1:
+                    print_info(f"  Installed models: {len(lines) - 1}")
             else:
-                print_warning("Skipped - agent won't work without an API key")
+                print_warning("Ollama is installed but may not be running.")
+                print_info("  Start it with: ollama serve")
+        except FileNotFoundError:
+            print_warning("Ollama not found on PATH.")
+            print_info("  Install from: https://ollama.com")
+            print_info("  Then run: ollama serve")
+        except subprocess.TimeoutExpired:
+            print_warning("Ollama not responding (timeout).")
+            print_info("  Start it with: ollama serve")
+        except Exception:
+            pass
 
-        # Clear any custom endpoint if switching to OpenRouter
-        if existing_custom:
-            save_env_value("OPENAI_BASE_URL", "")
-            save_env_value("OPENAI_API_KEY", "")
+        config["provider"] = "ollama"
+        save_config(config)
 
-    elif provider_idx == 2:  # Custom endpoint
+    elif provider_idx == 1:  # OCI GenAI
+        selected_provider = "oci"
+        print()
+        print_header("OCI GenAI Setup")
+        print_info("Uses Oracle Cloud Infrastructure GenAI service.")
+        print_info("Requires ~/.oci/config profile.")
+        print()
+
+        current_profile = get_env_value("OCI_PROFILE") or "foosball"
+        current_region = get_env_value("OCI_REGION") or "us-chicago-1"
+        current_compartment = get_env_value("OCI_COMPARTMENT_ID") or ""
+
+        profile = prompt("  OCI profile name", current_profile)
+        region = prompt("  OCI region", current_region)
+        compartment = prompt("  OCI compartment OCID", current_compartment)
+
+        if profile:
+            save_env_value("OCI_PROFILE", profile)
+        if region:
+            save_env_value("OCI_REGION", region)
+        if compartment:
+            save_env_value("OCI_COMPARTMENT_ID", compartment)
+
+        config["provider"] = "oci"
+        save_config(config)
+        print_success("OCI GenAI configured")
+
+    elif provider_idx == 2:  # Custom
         selected_provider = "custom"
         print()
         print_header("Custom OpenAI-Compatible Endpoint")
-        print_info("Works with any API that follows OpenAI's chat completions spec")
+        print_info("Works with any API that follows OpenAI's chat completions spec.")
 
         current_url = get_env_value("OPENAI_BASE_URL") or ""
         current_key = get_env_value("OPENAI_API_KEY")
-        current_model = config.get('model', '')
-
-        if current_url:
-            print_info(f"  Current URL: {current_url}")
-        if current_key:
-            print_info(f"  Current key: {current_key[:8]}... (configured)")
 
         base_url = prompt("  API base URL (e.g., https://api.example.com/v1)", current_url)
         api_key = prompt("  API key", password=True)
-        model_name = prompt("  Model name (e.g., gpt-4, claude-3-opus)", current_model)
 
         if base_url:
             save_env_value("OPENAI_BASE_URL", base_url)
         if api_key:
             save_env_value("OPENAI_API_KEY", api_key)
-        if model_name:
-            config['model'] = model_name
-            save_env_value("LLM_MODEL", model_name)
+
+        config["provider"] = "custom"
+        save_config(config)
         print_success("Custom endpoint configured")
-    # else: provider_idx == 3 (Keep current) — only shown when a provider already exists
 
-    # =========================================================================
-    # Step 1b: OpenRouter API Key for tools (if not already set)
-    # =========================================================================
-    # Tools (vision, web, MoA) use OpenRouter independently of the main provider.
-    # Prompt for OpenRouter key if not set and a non-OpenRouter provider was chosen.
-    if selected_provider in ("nous", "custom") and not get_env_value("OPENROUTER_API_KEY"):
-        print()
-        print_header("OpenRouter API Key (for tools)")
-        print_info("Tools like vision analysis, web search, and MoA use OpenRouter")
-        print_info("independently of your main inference provider.")
-        print_info("Get your API key at: https://openrouter.ai/keys")
-
-        api_key = prompt("  OpenRouter API key (optional, press Enter to skip)", password=True)
-        if api_key:
-            save_env_value("OPENROUTER_API_KEY", api_key)
-            print_success("OpenRouter API key saved (for tools)")
-        else:
-            print_info("Skipped - some tools (vision, web scraping) won't work without this")
+    # else: keep current (no change)
 
     # =========================================================================
     # Step 2: Model Selection (adapts based on provider)
     # =========================================================================
-    if selected_provider != "custom":  # Custom already prompted for model name
+    effective_provider = selected_provider or config.get("provider", "ollama")
+
+    if selected_provider != "custom":
         print_header("Default Model")
 
-        current_model = config.get('model', 'anthropic/claude-opus-4.6')
+        current_model = config.get("model", DEFAULT_CONFIG["model"])
         print_info(f"Current: {current_model}")
 
-        if selected_provider == "nous" and nous_models:
-            # Dynamic model list from Nous Portal
-            model_choices = [f"{m}" for m in nous_models]
-            model_choices.append("Custom model")
-            model_choices.append(f"Keep current ({current_model})")
+        if effective_provider == "ollama":
+            from hermes_cli.models import ollama_model_ids, ollama_menu_labels
 
-            # Post-login validation: warn if current model might not be available
-            if current_model and current_model not in nous_models:
-                print_warning(f"Your current model ({current_model}) may not be available via Nous Portal.")
-                print_info("Select a model from the list, or keep current to use it anyway.")
+            ids = ollama_model_ids()
+            model_choices = ollama_menu_labels() + [
+                "Custom model",
+                f"Keep current ({current_model})",
+            ]
+
+            try:
+                default_model_idx = ids.index("qwen3.5:4b")
+            except ValueError:
+                default_model_idx = len(model_choices) - 1
+
+            model_idx = prompt_choice("Select default model:", model_choices, default_model_idx)
+
+            if model_idx < len(ids):
+                config["model"] = ids[model_idx]
+                save_env_value("LLM_MODEL", ids[model_idx])
+
+                # Offer to pull the model
+                import subprocess
                 print()
+                if prompt_yes_no(f"Pull {ids[model_idx]} now? (requires Ollama running)", True):
+                    try:
+                        print_info(f"  Pulling {ids[model_idx]}...")
+                        subprocess.run(
+                            ["ollama", "pull", ids[model_idx]],
+                            timeout=600,
+                        )
+                        print_success(f"  {ids[model_idx]} pulled successfully!")
+                    except FileNotFoundError:
+                        print_warning("  Ollama not found. Pull manually: ollama pull " + ids[model_idx])
+                    except subprocess.TimeoutExpired:
+                        print_warning("  Pull timed out. Run manually: ollama pull " + ids[model_idx])
+                    except Exception as e:
+                        print_warning(f"  Pull failed: {e}")
 
-            model_idx = prompt_choice("Select default model:", model_choices, len(model_choices) - 1)
-
-            if model_idx < len(nous_models):
-                config['model'] = nous_models[model_idx]
-                save_env_value("LLM_MODEL", nous_models[model_idx])
-            elif model_idx == len(nous_models):  # Custom
-                custom = prompt("Enter model name")
+            elif model_idx == len(ids):  # Custom
+                custom = prompt("Enter model name (e.g., llama3.3:70b, deepseek-r1:7b)")
                 if custom:
-                    config['model'] = custom
+                    config["model"] = custom
                     save_env_value("LLM_MODEL", custom)
             # else: keep current
-        else:
-            # Static list for OpenRouter / fallback (from canonical list)
+
+        elif effective_provider == "oci":
             from hermes_cli.models import model_ids, menu_labels
 
             ids = model_ids()
@@ -820,15 +788,22 @@ def run_setup_wizard(args):
             model_idx = prompt_choice("Select default model:", model_choices, keep_idx)
 
             if model_idx < len(ids):
-                config['model'] = ids[model_idx]
+                config["model"] = ids[model_idx]
                 save_env_value("LLM_MODEL", ids[model_idx])
             elif model_idx == len(ids):  # Custom
-                custom = prompt("Enter model name (e.g., anthropic/claude-opus-4.6)")
+                custom = prompt("Enter model name")
                 if custom:
-                    config['model'] = custom
+                    config["model"] = custom
                     save_env_value("LLM_MODEL", custom)
-            # else: Keep current
-    
+            # else: keep current
+
+        else:
+            current_model = config.get("model", "")
+            model_name = prompt("  Model name", current_model)
+            if model_name:
+                config["model"] = model_name
+                save_env_value("LLM_MODEL", model_name)
+
     # =========================================================================
     # Step 4: Terminal Backend
     # =========================================================================
