@@ -16,7 +16,7 @@ Features:
 Usage:
     from run_agent import AIAgent
     
-    agent = AIAgent(base_url="http://localhost:30000/v1", model="claude-opus-4-20250514")
+    agent = AIAgent()
     response = agent.run_conversation("Tell me about the latest Python updates")
 """
 
@@ -70,7 +70,7 @@ from tools.browser_tool import cleanup_browser
 
 import requests
 
-from hermes_constants import OPENROUTER_BASE_URL, OPENROUTER_MODELS_URL
+from hermes_constants import DEFAULT_MODEL, OLLAMA_BASE_URL, OPENROUTER_BASE_URL, OPENROUTER_MODELS_URL
 from oci_client import create_oci_client, get_oci_base_url, DEFAULT_PROFILE, DEFAULT_COMPARTMENT_ID, DEFAULT_REGION
 
 # Agent internals extracted to agent/ package for modularity
@@ -107,7 +107,7 @@ class AIAgent:
         self,
         base_url: str = None,
         api_key: str = None,
-        model: str = "xai.grok-3-mini",  # OCI GenAI model
+        model: str = DEFAULT_MODEL,
         max_iterations: int = 60,  # Default tool-calling iterations
         tool_delay: float = 1.0,
         enabled_toolsets: List[str] = None,
@@ -262,12 +262,21 @@ class AIAgent:
                 ]:
                     logging.getLogger(quiet_logger).setLevel(logging.ERROR)
         
-        # --- OCI GenAI client ---
+        # --- Provider resolution ---
+        from hermes_cli.config import load_config as _load_cfg
+        _cfg = _load_cfg()
+        _provider = _cfg.get("provider", "ollama")
+
+        _is_oci = "oci.oraclecloud.com" in (base_url or "")
+        if base_url and api_key and not _is_oci:
+            _provider = "custom"
+
+        os.environ["HERMES_PROVIDER"] = _provider
+        self._provider = _provider
+
         oci_profile = os.getenv("OCI_PROFILE", DEFAULT_PROFILE)
         oci_compartment = os.getenv("OCI_COMPARTMENT_ID", DEFAULT_COMPARTMENT_ID)
         oci_region = os.getenv("OCI_REGION", DEFAULT_REGION)
-
-        # Store OCI params for client rebuilding after interrupt
         self._oci_params = {
             "profile_name": oci_profile,
             "compartment_id": oci_compartment,
@@ -275,27 +284,36 @@ class AIAgent:
         }
 
         try:
-            if base_url and api_key:
-                # Custom endpoint — use standard OpenAI client (preserves flexibility)
+            if _provider == "custom":
                 from openai import OpenAI
                 self.client = OpenAI(base_url=base_url, api_key=api_key)
                 self._client_kwargs = {"base_url": base_url, "api_key": api_key}
-            else:
-                # Default: OCI GenAI
+            elif _provider == "oci":
                 self.client = create_oci_client(
                     profile_name=oci_profile,
                     compartment_id=oci_compartment,
                     region=oci_region,
                 )
                 self.base_url = get_oci_base_url(oci_region)
-                self._client_kwargs = None  # OCI client rebuilt via _oci_params
+                self._client_kwargs = None
+            else:
+                # Default: Ollama (local)
+                from openai import OpenAI
+                self.client = OpenAI(
+                    base_url=OLLAMA_BASE_URL,
+                    api_key="ollama",
+                )
+                self.base_url = OLLAMA_BASE_URL
+                self._client_kwargs = {"base_url": OLLAMA_BASE_URL, "api_key": "ollama"}
 
             if not self.quiet_mode:
                 print(f"🤖 AI Agent initialized with model: {self.model}")
-                if base_url:
-                    print(f"🔗 Using custom base URL: {base_url}")
-                else:
+                if _provider == "custom":
+                    print(f"🔗 Using custom endpoint: {base_url}")
+                elif _provider == "oci":
                     print(f"🔗 Using OCI GenAI ({oci_region})")
+                else:
+                    print(f"🔗 Using Ollama (local) at {OLLAMA_BASE_URL}")
         except Exception as e:
             raise RuntimeError(f"Failed to initialize AI client: {e}")
         

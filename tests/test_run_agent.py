@@ -45,6 +45,7 @@ def agent():
         patch("run_agent.OpenAI"),
     ):
         a = AIAgent(
+            base_url="http://test.example.com/v1",
             api_key="test-key-1234567890",
             quiet_mode=True,
             skip_context_files=True,
@@ -63,6 +64,7 @@ def agent_with_memory_tool():
         patch("run_agent.OpenAI"),
     ):
         a = AIAgent(
+            base_url="http://test.example.com/v1",
             api_key="test-key-1234567890",
             quiet_mode=True,
             skip_context_files=True,
@@ -278,21 +280,22 @@ class TestMaskApiKey:
 
 
 class TestInit:
-    def test_prompt_caching_claude_openrouter(self):
-        """Claude model via OpenRouter should enable prompt caching."""
+    def test_prompt_caching_disabled(self):
+        """Prompt caching is always disabled (OCI GenAI / Ollama don't support it)."""
         with (
             patch("run_agent.get_tool_definitions", return_value=[]),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
         ):
             a = AIAgent(
+                base_url="http://test.example.com/v1",
                 api_key="test-key-1234567890",
                 model="anthropic/claude-sonnet-4-20250514",
                 quiet_mode=True,
                 skip_context_files=True,
                 skip_memory=True,
             )
-            assert a._use_prompt_caching is True
+            assert a._use_prompt_caching is False
 
     def test_prompt_caching_non_claude(self):
         """Non-Claude model should disable prompt caching."""
@@ -302,6 +305,7 @@ class TestInit:
             patch("run_agent.OpenAI"),
         ):
             a = AIAgent(
+                base_url="http://test.example.com/v1",
                 api_key="test-key-1234567890",
                 model="openai/gpt-4o",
                 quiet_mode=True,
@@ -336,6 +340,7 @@ class TestInit:
             patch("run_agent.OpenAI"),
         ):
             a = AIAgent(
+                base_url="http://test.example.com/v1",
                 api_key="test-key-1234567890",
                 quiet_mode=True,
                 skip_context_files=True,
@@ -351,6 +356,7 @@ class TestInit:
             patch("run_agent.OpenAI"),
         ):
             a = AIAgent(
+                base_url="http://test.example.com/v1",
                 api_key="test-key-1234567890",
                 quiet_mode=True,
                 skip_context_files=True,
@@ -470,25 +476,11 @@ class TestBuildApiKwargs:
         assert kwargs["messages"] is messages
         assert kwargs["timeout"] == 600.0
 
-    def test_provider_preferences_injected(self, agent):
-        agent.providers_allowed = ["Anthropic"]
+    def test_no_extra_body_by_default(self, agent):
+        """Ollama/OCI providers don't inject extra_body (OpenRouter-specific)."""
         messages = [{"role": "user", "content": "hi"}]
         kwargs = agent._build_api_kwargs(messages)
-        assert kwargs["extra_body"]["provider"]["only"] == ["Anthropic"]
-
-    def test_reasoning_config_default_openrouter(self, agent):
-        """Default reasoning config for OpenRouter should be xhigh."""
-        messages = [{"role": "user", "content": "hi"}]
-        kwargs = agent._build_api_kwargs(messages)
-        reasoning = kwargs["extra_body"]["reasoning"]
-        assert reasoning["enabled"] is True
-        assert reasoning["effort"] == "xhigh"
-
-    def test_reasoning_config_custom(self, agent):
-        agent.reasoning_config = {"enabled": False}
-        messages = [{"role": "user", "content": "hi"}]
-        kwargs = agent._build_api_kwargs(messages)
-        assert kwargs["extra_body"]["reasoning"] == {"enabled": False}
+        assert "extra_body" not in kwargs
 
     def test_max_tokens_injected(self, agent):
         agent.max_tokens = 4096
