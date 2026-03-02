@@ -56,6 +56,12 @@ PROVIDER_REGISTRY: Dict[str, ProviderConfig] = {
         name="OCI GenAI",
         auth_type="oci_profile",
     ),
+    "ollama": ProviderConfig(
+        id="ollama",
+        name="Ollama (local)",
+        auth_type="none",
+        inference_base_url="http://localhost:11434/v1",
+    ),
 }
 
 
@@ -107,12 +113,20 @@ def resolve_provider(
     """
     Determine which inference provider to use.
 
-    Returns "custom" if explicit base_url + api_key are provided,
-    otherwise always returns "oci".
+    Priority: explicit args > requested > config file > default (ollama).
     """
     if explicit_base_url and explicit_api_key:
         return "custom"
-    return "oci"
+    if requested and requested != "auto":
+        return requested
+
+    # Read from config
+    from hermes_cli.config import load_config
+    config = load_config()
+    provider = config.get("provider", "ollama")
+    if provider in ("ollama", "oci", "custom"):
+        return provider
+    return "ollama"
 
 
 # =============================================================================
@@ -125,6 +139,12 @@ def get_provider_auth_state(provider_id: str) -> Optional[Dict[str, Any]]:
     OCI auth is handled by the SDK via ~/.oci/config, so there is no
     per-provider JSON state. Returns a synthetic dict for OCI.
     """
+    if provider_id == "ollama":
+        return {
+            "provider": "ollama",
+            "base_url": "http://localhost:11434/v1",
+            "config_exists": True,
+        }
     if provider_id == "oci":
         oci_profile = os.getenv("OCI_PROFILE", "foosball")
         oci_config = Path.home() / ".oci" / "config"
@@ -137,8 +157,10 @@ def get_provider_auth_state(provider_id: str) -> Optional[Dict[str, Any]]:
 
 
 def get_active_provider() -> Optional[str]:
-    """Return the currently active provider ID. Always 'oci'."""
-    return "oci"
+    """Return the currently active provider ID."""
+    from hermes_cli.config import load_config
+    config = load_config()
+    return config.get("provider", "ollama")
 
 
 def clear_provider_auth(provider_id: Optional[str] = None) -> bool:
@@ -212,6 +234,16 @@ def get_nous_auth_status() -> Dict[str, Any]:
 
 def get_auth_status(provider_id: Optional[str] = None) -> Dict[str, Any]:
     """Generic auth status dispatcher."""
+    effective = provider_id or get_active_provider()
+    if effective == "ollama":
+        return {
+            "logged_in": True,
+            "portal_base_url": None,
+            "inference_base_url": "http://localhost:11434/v1",
+            "access_expires_at": None,
+            "agent_key_expires_at": None,
+            "has_refresh_token": False,
+        }
     return get_nous_auth_status()
 
 

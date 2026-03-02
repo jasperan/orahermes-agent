@@ -57,7 +57,8 @@ def ensure_hermes_home():
 # =============================================================================
 
 DEFAULT_CONFIG = {
-    "model": "xai.grok-3-mini",
+    "model": "qwen3.5:4b",
+    "provider": "ollama",  # "ollama", "oci", or "custom"
     "toolsets": ["hermes-cli"],
     "max_turns": 100,
     
