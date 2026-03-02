@@ -23,6 +23,14 @@ OCI_GENAI_MODELS: Dict[str, Dict[str, Any]] = {
     "meta.llama-4-scout-17b-16e-instruct-fp8": {"context_length": 10485760, "name": "Llama 4 Scout"},
 }
 
+# ── Ollama model catalogue (local inference) ──────────────────────────
+OLLAMA_MODELS: Dict[str, Dict[str, Any]] = {
+    "qwen3.5:0.8b": {"context_length": 32768, "name": "Qwen 3.5 0.8B"},
+    "qwen3.5:2b": {"context_length": 32768, "name": "Qwen 3.5 2B"},
+    "qwen3.5:4b": {"context_length": 32768, "name": "Qwen 3.5 4B"},
+    "qwen3.5:9b": {"context_length": 32768, "name": "Qwen 3.5 9B"},
+}
+
 # Fallback defaults for models not in the OCI catalogue
 DEFAULT_CONTEXT_LENGTHS: Dict[str, int] = {
     "xai.grok-3-mini": 131072,
@@ -30,16 +38,18 @@ DEFAULT_CONTEXT_LENGTHS: Dict[str, int] = {
     "meta.llama-3.3-70b-instruct": 128000,
     "meta.llama-4-maverick-17b-128e-instruct-fp8": 1048576,
     "meta.llama-4-scout-17b-16e-instruct-fp8": 10485760,
+    "qwen3.5:0.8b": 32768,
+    "qwen3.5:2b": 32768,
+    "qwen3.5:4b": 32768,
+    "qwen3.5:9b": 32768,
 }
 
 
 def fetch_model_metadata(force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
-    """Return the local OCI GenAI model metadata map.
-
-    The ``force_refresh`` parameter is accepted for backward compatibility
-    but has no effect since the catalogue is static.
-    """
-    return dict(OCI_GENAI_MODELS)
+    """Return merged model metadata map (Ollama + OCI GenAI)."""
+    merged = dict(OLLAMA_MODELS)
+    merged.update(OCI_GENAI_MODELS)
+    return merged
 
 
 def get_model_context_length(model: str) -> int:

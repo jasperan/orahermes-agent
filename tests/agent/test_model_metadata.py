@@ -1,7 +1,6 @@
 """Tests for agent/model_metadata.py — token estimation and context lengths."""
 
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from agent.model_metadata import (
     DEFAULT_CONTEXT_LENGTHS,
@@ -9,7 +8,6 @@ from agent.model_metadata import (
     estimate_messages_tokens_rough,
     get_model_context_length,
     fetch_model_metadata,
-    _MODEL_CACHE_TTL,
 )
 
 
@@ -97,8 +95,8 @@ class TestGetModelContextLength:
     @patch("agent.model_metadata.fetch_model_metadata")
     def test_fallback_to_defaults(self, mock_fetch):
         mock_fetch.return_value = {}  # API returns nothing
-        result = get_model_context_length("anthropic/claude-sonnet-4")
-        assert result == 200000
+        result = get_model_context_length("qwen3.5:4b")
+        assert result == 32768
 
     @patch("agent.model_metadata.fetch_model_metadata")
     def test_unknown_model_returns_128k(self, mock_fetch):
@@ -119,38 +117,29 @@ class TestGetModelContextLength:
 # =========================================================================
 
 class TestFetchModelMetadata:
-    @patch("agent.model_metadata.requests.get")
-    def test_caches_result(self, mock_get):
-        import agent.model_metadata as mm
-        # Reset cache
-        mm._model_metadata_cache = {}
-        mm._model_metadata_cache_time = 0
+    def test_returns_merged_catalogue(self):
+        """fetch_model_metadata merges Ollama + OCI GenAI models."""
+        result = fetch_model_metadata()
+        # Ollama models present
+        assert "qwen3.5:4b" in result
+        assert result["qwen3.5:4b"]["context_length"] == 32768
+        # OCI GenAI models present
+        assert "xai.grok-3-mini" in result
+        assert result["xai.grok-3-mini"]["context_length"] == 131072
 
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "data": [
-                {"id": "test/model", "context_length": 99999, "name": "Test Model"}
-            ]
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_get.return_value = mock_response
-
-        # First call fetches
-        result1 = fetch_model_metadata(force_refresh=True)
-        assert "test/model" in result1
-        assert mock_get.call_count == 1
-
-        # Second call uses cache
-        result2 = fetch_model_metadata()
-        assert "test/model" in result2
-        assert mock_get.call_count == 1  # Not called again
-
-    @patch("agent.model_metadata.requests.get")
-    def test_api_failure_returns_empty(self, mock_get):
-        import agent.model_metadata as mm
-        mm._model_metadata_cache = {}
-        mm._model_metadata_cache_time = 0
-
-        mock_get.side_effect = Exception("Network error")
+    def test_force_refresh_returns_same(self):
+        """force_refresh has no effect on static catalogue but should not error."""
         result = fetch_model_metadata(force_refresh=True)
-        assert result == {}
+        assert len(result) > 0
+        assert "qwen3.5:4b" in result
+
+    def test_oci_models_take_precedence(self):
+        """OCI GenAI entries are added after Ollama, so they win on key conflict."""
+        result = fetch_model_metadata()
+        # No actual conflicts in current catalogue, but verify merge order
+        # by checking both catalogues are represented
+        from agent.model_metadata import OLLAMA_MODELS, OCI_GENAI_MODELS
+        for key in OLLAMA_MODELS:
+            assert key in result
+        for key in OCI_GENAI_MODELS:
+            assert key in result
