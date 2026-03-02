@@ -673,6 +673,18 @@ def show_config():
     print(f"  Secrets:      {get_env_path()}")
     print(f"  Install:      {get_project_root()}")
     
+    # Provider
+    print()
+    print(color("◆ Provider", Colors.CYAN, Colors.BOLD))
+    provider = config.get("provider", "ollama")
+    provider_display = {"ollama": "Ollama (local)", "oci": "OCI GenAI", "custom": "Custom endpoint"}.get(provider, provider)
+    print(f"  Provider:     {provider_display}")
+    if provider == "ollama":
+        print(f"  Endpoint:     http://localhost:11434/v1")
+    elif provider == "oci":
+        print(f"  OCI Profile:  {get_env_value('OCI_PROFILE') or '(default)'}")
+        print(f"  OCI Region:   {get_env_value('OCI_REGION') or 'us-chicago-1'}")
+
     # API Keys
     print()
     print(color("◆ API Keys", Colors.CYAN, Colors.BOLD))

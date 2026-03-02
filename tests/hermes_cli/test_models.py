@@ -14,10 +14,10 @@ class TestModelIds:
         expected = [mid for mid, _ in OPENROUTER_MODELS]
         assert ids == expected
 
-    def test_all_ids_contain_provider_slash(self):
-        """Model IDs should follow the provider/model format."""
+    def test_all_ids_are_non_empty_strings(self):
+        """Model IDs should be non-empty strings (OCI uses dots, Ollama uses colons)."""
         for mid in model_ids():
-            assert "/" in mid, f"Model ID '{mid}' missing provider/ prefix"
+            assert isinstance(mid, str) and len(mid) > 0, f"Invalid model ID: {mid!r}"
 
     def test_no_duplicate_ids(self):
         ids = model_ids()
