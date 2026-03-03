@@ -777,9 +777,9 @@ class HermesCLI:
         Args:
             model: Model to use (default: from env or claude-sonnet)
             toolsets: List of toolsets to enable (default: all)
-            provider: Inference provider ("auto", "openrouter", "nous")
+            provider: Inference provider ("ollama", "oci", "custom")
             api_key: API key (default: from environment)
-            base_url: API base URL (default: OpenRouter)
+            base_url: API base URL (default: Ollama)
             max_turns: Maximum tool-calling iterations (default: 60)
             verbose: Enable verbose logging
             compact: Use compact display mode
@@ -831,8 +831,7 @@ class HermesCLI:
             explicit_api_key=api_key,
             explicit_base_url=base_url,
         )
-        self._nous_key_expires_at: Optional[str] = None
-        self._nous_key_source: Optional[str] = None
+        os.environ["HERMES_PROVIDER"] = self.provider
         # Max turns priority: CLI arg > env var > config file (agent.max_turns or root max_turns) > default
         if max_turns is not None:
             self.max_turns = max_turns
@@ -927,9 +926,6 @@ class HermesCLI:
         credentials_changed = api_key != self.api_key or base_url != self.base_url
         self.api_key = api_key
         self.base_url = base_url
-        self._nous_key_expires_at = credentials.get("expires_at")
-        self._nous_key_source = credentials.get("source")
-
         # AIAgent/OpenAI client holds auth at init time, so rebuild if key rotated
         if credentials_changed and self.agent is not None:
             self.agent = None
@@ -1083,8 +1079,6 @@ class HermesCLI:
 
         provider_display = {"ollama": "Ollama (local)", "oci": "OCI GenAI", "custom": "Custom"}.get(self.provider, self.provider)
         provider_info = f" [dim #B8860B]·[/] [dim]provider: {provider_display}[/]"
-        if self.provider == "nous" and self._nous_key_source:
-            provider_info += f" [dim #B8860B]·[/] [dim]key: {self._nous_key_source}[/]"
 
         self.console.print(
             f"  {api_indicator} [#FFBF00]{model_short}[/] "
@@ -2710,7 +2704,7 @@ def main(
         q: Shorthand for --query
         toolsets: Comma-separated list of toolsets to enable (e.g., "web,terminal")
         model: Model to use (default: anthropic/claude-opus-4-20250514)
-        provider: Inference provider ("auto", "openrouter", "nous")
+        provider: Inference provider ("ollama", "oci", "custom")
         api_key: API key for authentication
         base_url: Base URL for the API
         max_turns: Maximum tool-calling iterations (default: 60)

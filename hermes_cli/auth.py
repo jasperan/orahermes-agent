@@ -6,7 +6,7 @@ code flows or API key minting needed — the OCI SDK handles auth via config
 profiles, instance principals, or resource principals.
 
 Architecture:
-- resolve_provider() returns "oci" by default or "custom" for explicit overrides
+- resolve_provider() returns "ollama" by default, or "oci"/"custom" per config
 - login_command() / logout_command() are stubs (OCI uses config profiles)
 - Legacy symbols (ProviderConfig, AuthError, etc.) are preserved as stubs
   so that other modules can still import them without breaking.

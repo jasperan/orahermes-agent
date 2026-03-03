@@ -139,7 +139,7 @@ class AIAgent:
         Args:
             base_url (str): Base URL for the model API (optional)
             api_key (str): API key for authentication (optional, uses env var if not provided)
-            model (str): Model name to use (default: "xai.grok-3-mini")
+            model (str): Model name to use (default: qwen3.5:4b)
             max_iterations (int): Maximum number of tool calling iterations (default: 60)
             tool_delay (float): Delay between tool calls in seconds (default: 1.0)
             enabled_toolsets (List[str]): Only enable tools from these toolsets (optional)
@@ -150,9 +150,9 @@ class AIAgent:
             ephemeral_system_prompt (str): System prompt used during agent execution but NOT saved to trajectories (optional)
             log_prefix_chars (int): Number of characters to show in log previews for tool calls/responses (default: 100)
             log_prefix (str): Prefix to add to all log messages for identification in parallel processing (default: "")
-            providers_allowed (List[str]): OpenRouter providers to allow (optional)
-            providers_ignored (List[str]): OpenRouter providers to ignore (optional)
-            providers_order (List[str]): OpenRouter providers to try in order (optional)
+            providers_allowed (List[str]): Provider routing — allowed providers (optional)
+            providers_ignored (List[str]): Provider routing — providers to ignore (optional)
+            providers_order (List[str]): Provider routing — preferred order (optional)
             provider_sort (str): Sort providers by price/throughput/latency (optional)
             session_id (str): Pre-generated session ID for logging (optional, auto-generated if not provided)
             tool_progress_callback (callable): Callback function(tool_name, args_preview) for progress notifications
@@ -2531,7 +2531,7 @@ class AIAgent:
 
 def main(
     query: str = None,
-    model: str = "xai.grok-3-mini",
+    model: str = DEFAULT_MODEL,
     api_key: str = None,
     base_url: str = None,
     max_turns: int = 10,
@@ -2548,7 +2548,7 @@ def main(
 
     Args:
         query (str): Natural language query for the agent. Defaults to Python 3.13 example.
-        model (str): Model name to use. Defaults to xai.grok-3-mini (OCI GenAI).
+        model (str): Model name to use. Defaults to DEFAULT_MODEL (from hermes_constants).
         api_key (str): API key for authentication. Only needed for custom endpoints.
         base_url (str): Base URL for the model API. Defaults to None (OCI GenAI).
         max_turns (int): Maximum number of API call iterations. Defaults to 10.
