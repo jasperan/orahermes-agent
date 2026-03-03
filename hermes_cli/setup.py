@@ -258,7 +258,7 @@ def _prompt_api_key(var: dict):
         save_env_value(var["name"], value)
         print_success(f"  ✓ Saved")
     else:
-        print_warning(f"  Skipped (configure later with 'hermes setup')")
+        print_warning(f"  Skipped (configure later with 'orahermes setup')")
 
 
 def _print_setup_summary(config: dict, hermes_home):
@@ -340,7 +340,7 @@ def _print_setup_summary(config: dict, hermes_home):
     
     disabled_tools = [(name, var) for name, avail, var in tool_status if not avail]
     if disabled_tools:
-        print_warning("Some tools are disabled. Run 'hermes setup' again to configure them,")
+        print_warning("Some tools are disabled. Run 'orahermes setup' again to configure them,")
         print_warning("or edit ~/.hermes/.env directly to add the missing API keys.")
         print()
     
@@ -363,9 +363,9 @@ def _print_setup_summary(config: dict, hermes_home):
     print()
     print(color("📝 To edit your configuration:", Colors.CYAN, Colors.BOLD))
     print()
-    print(f"   {color('hermes config', Colors.GREEN)}        View current settings")
-    print(f"   {color('hermes config edit', Colors.GREEN)}   Open config in your editor")
-    print(f"   {color('hermes config set KEY VALUE', Colors.GREEN)}")
+    print(f"   {color('orahermes config', Colors.GREEN)}        View current settings")
+    print(f"   {color('orahermes config edit', Colors.GREEN)}   Open config in your editor")
+    print(f"   {color('orahermes config set KEY VALUE', Colors.GREEN)}")
     print(f"                         Set a specific value")
     print()
     print(f"   Or edit the files directly:")
@@ -377,9 +377,9 @@ def _print_setup_summary(config: dict, hermes_home):
     print()
     print(color("🚀 Ready to go!", Colors.CYAN, Colors.BOLD))
     print()
-    print(f"   {color('hermes', Colors.GREEN)}              Start chatting")
-    print(f"   {color('hermes gateway', Colors.GREEN)}      Start messaging gateway")
-    print(f"   {color('hermes doctor', Colors.GREEN)}       Check for issues")
+    print(f"   {color('orahermes', Colors.GREEN)}              Start chatting")
+    print(f"   {color('orahermes gateway', Colors.GREEN)}      Start messaging gateway")
+    print(f"   {color('orahermes doctor', Colors.GREEN)}       Check for issues")
     print()
 
 
@@ -459,7 +459,7 @@ def run_setup_wizard(args):
             quick_mode = True
         elif choice == 2:
             print()
-            print_info("Exiting. Run 'hermes setup' again when ready.")
+            print_info("Exiting. Run 'orahermes setup' again when ready.")
             return
         # choice == 1 continues with full setup
         
@@ -531,7 +531,7 @@ def run_setup_wizard(args):
             print()
             print_header("Messaging Platforms")
             print_info("Connect Hermes to messaging apps to chat from anywhere.")
-            print_info("You can configure these later with 'hermes setup'.")
+            print_info("You can configure these later with 'orahermes setup'.")
 
             # Group by platform (preserving order)
             platform_order = []
@@ -606,7 +606,7 @@ def run_setup_wizard(args):
     print_info(f"Data folder:  {hermes_home}")
     print_info(f"Install dir:  {PROJECT_ROOT}")
     print()
-    print_info("You can edit these files directly or use 'hermes config edit'")
+    print_info("You can edit these files directly or use 'orahermes config edit'")
     
     # =========================================================================
     # Step 1: Inference Provider Selection
@@ -1308,7 +1308,7 @@ def run_setup_wizard(args):
             else:
                 print_info("⚠️  No allowlist set — anyone who messages your WhatsApp will get a response!")
             
-            print_info("Start the gateway with 'hermes gateway' and scan the QR code.")
+            print_info("Start the gateway with 'orahermes gateway' and scan the QR code.")
     
     # Gateway reminder
     any_messaging = (
@@ -1322,8 +1322,8 @@ def run_setup_wizard(args):
         print_info("━" * 50)
         print_success("Messaging platforms configured!")
         print_info("Start the gateway after setup to bring your bots online:")
-        print_info("   hermes gateway              # Run in foreground")
-        print_info("   hermes gateway install      # Install as background service (Linux)")
+        print_info("   orahermes gateway              # Run in foreground")
+        print_info("   orahermes gateway install      # Install as background service (Linux)")
         
         # Check if any home channels are missing
         missing_home = []
@@ -1341,7 +1341,7 @@ def run_setup_wizard(args):
             print_info("   messages can't be delivered to those platforms.")
             print_info("   Set one later with /set-home in your chat, or:")
             for plat in missing_home:
-                print_info(f"     hermes config set {plat.upper()}_HOME_CHANNEL <channel_id>")
+                print_info(f"     orahermes config set {plat.upper()}_HOME_CHANNEL <channel_id>")
         
         print_info("━" * 50)
     
@@ -1350,7 +1350,7 @@ def run_setup_wizard(args):
     # =========================================================================
     print_header("Additional Tools")
     print_info("Select which tools you'd like to configure.")
-    print_info("You can always add more later with 'hermes setup'.")
+    print_info("You can always add more later with 'orahermes setup'.")
     print()
     
     # Define tool categories for the checklist.

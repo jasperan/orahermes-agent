@@ -109,7 +109,7 @@ def show_status(args):
     nous_logged_in = bool(nous_status.get("logged_in"))
     print(
         f"  {'Nous Portal':<12}  {check_mark(nous_logged_in)} "
-        f"{'logged in' if nous_logged_in else 'not logged in (run: hermes login)'}"
+        f"{'logged in' if nous_logged_in else 'not logged in (run: orahermes login)'}"
     )
     if nous_logged_in:
         portal_url = nous_status.get("portal_base_url") or "(unknown)"
@@ -282,6 +282,6 @@ def show_status(args):
     
     print()
     print(color("─" * 60, Colors.DIM))
-    print(color("  Run 'hermes doctor' for detailed diagnostics", Colors.DIM))
-    print(color("  Run 'hermes setup' to configure", Colors.DIM))
+    print(color("  Run 'orahermes doctor' for detailed diagnostics", Colors.DIM))
+    print(color("  Run 'orahermes setup' to configure", Colors.DIM))
     print()

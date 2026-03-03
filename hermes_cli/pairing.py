@@ -2,14 +2,14 @@
 CLI commands for the DM pairing system.
 
 Usage:
-    hermes pairing list              # Show all pending + approved users
-    hermes pairing approve <platform> <code>  # Approve a pairing code
-    hermes pairing revoke <platform> <user_id> # Revoke user access
-    hermes pairing clear-pending     # Clear all expired/pending codes
+    orahermes pairing list              # Show all pending + approved users
+    orahermes pairing approve <platform> <code>  # Approve a pairing code
+    orahermes pairing revoke <platform> <user_id> # Revoke user access
+    orahermes pairing clear-pending     # Clear all expired/pending codes
 """
 
 def pairing_command(args):
-    """Handle hermes pairing subcommands."""
+    """Handle orahermes pairing subcommands."""
     from gateway.pairing import PairingStore
 
     store = PairingStore()
@@ -24,8 +24,8 @@ def pairing_command(args):
     elif action == "clear-pending":
         _cmd_clear_pending(store)
     else:
-        print("Usage: hermes pairing {list|approve|revoke|clear-pending}")
-        print("Run 'hermes pairing --help' for details.")
+        print("Usage: orahermes pairing {list|approve|revoke|clear-pending}")
+        print("Run 'orahermes pairing --help' for details.")
 
 
 def _cmd_list(store):
@@ -75,7 +75,7 @@ def _cmd_approve(store, platform: str, code: str):
         print(f"  They'll be recognized automatically on their next message.\n")
     else:
         print(f"\n  Code '{code}' not found or expired for platform '{platform}'.")
-        print(f"  Run 'hermes pairing list' to see pending codes.\n")
+        print(f"  Run 'orahermes pairing list' to see pending codes.\n")
 
 
 def _cmd_revoke(store, platform: str, user_id: str):

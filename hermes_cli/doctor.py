@@ -31,7 +31,6 @@ os.environ.setdefault("MSWEA_GLOBAL_CONFIG_DIR", str(HERMES_HOME))
 os.environ.setdefault("MSWEA_SILENT_STARTUP", "1")
 
 from hermes_cli.colors import Colors, color
-from hermes_constants import OPENROUTER_MODELS_URL
 
 def check_ok(text: str, detail: str = ""):
     print(f"  {color('✓', Colors.GREEN)} {text}" + (f" {color(detail, Colors.DIM)}" if detail else ""))
@@ -130,13 +129,13 @@ def run_doctor(args):
     if env_path.exists():
         check_ok("~/.hermes/.env file exists")
         
-        # Check for common issues
-        content = env_path.read_text()
-        if "OPENROUTER_API_KEY" in content or "ANTHROPIC_API_KEY" in content:
-            check_ok("API key configured")
+        # Check for provider configuration
+        content = env_path.read_text().strip()
+        if content:
+            check_ok("~/.hermes/.env has configuration")
         else:
-            check_warn("No API key found in ~/.hermes/.env")
-            issues.append("Run 'hermes setup' to configure API keys")
+            check_warn("~/.hermes/.env is empty")
+            issues.append("Run 'orahermes setup' to configure your provider")
     else:
         # Also check project root as fallback
         fallback_env = PROJECT_ROOT / '.env'
@@ -148,11 +147,11 @@ def run_doctor(args):
                 env_path.parent.mkdir(parents=True, exist_ok=True)
                 env_path.touch()
                 check_ok("Created empty ~/.hermes/.env")
-                check_info("Run 'hermes setup' to configure API keys")
+                check_info("Run 'orahermes setup' to configure your provider")
                 fixed_count += 1
             else:
-                check_info("Run 'hermes setup' to create one")
-                issues.append("Run 'hermes setup' to create .env")
+                check_info("Run 'orahermes setup' to create one")
+                issues.append("Run 'orahermes setup' to create .env")
     
     # Check ~/.hermes/config.yaml (primary) or project cli-config.yaml (fallback)
     config_path = HERMES_HOME / 'config.yaml'
@@ -378,51 +377,23 @@ def run_doctor(args):
     print()
     print(color("◆ API Connectivity", Colors.CYAN, Colors.BOLD))
     
-    openrouter_key = os.getenv("OPENROUTER_API_KEY")
-    if openrouter_key:
-        print("  Checking OpenRouter API...", end="", flush=True)
-        try:
-            import httpx
-            response = httpx.get(
-                OPENROUTER_MODELS_URL,
-                headers={"Authorization": f"Bearer {openrouter_key}"},
-                timeout=10
-            )
-            if response.status_code == 200:
-                print(f"\r  {color('✓', Colors.GREEN)} OpenRouter API                          ")
-            elif response.status_code == 401:
-                print(f"\r  {color('✗', Colors.RED)} OpenRouter API {color('(invalid API key)', Colors.DIM)}                ")
-                issues.append("Check OPENROUTER_API_KEY in .env")
-            else:
-                print(f"\r  {color('✗', Colors.RED)} OpenRouter API {color(f'(HTTP {response.status_code})', Colors.DIM)}                ")
-        except Exception as e:
-            print(f"\r  {color('✗', Colors.RED)} OpenRouter API {color(f'({e})', Colors.DIM)}                ")
-            issues.append("Check network connectivity")
-    else:
-        check_warn("OpenRouter API", "(not configured)")
-    
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-    if anthropic_key:
-        print("  Checking Anthropic API...", end="", flush=True)
-        try:
-            import httpx
-            response = httpx.get(
-                "https://api.anthropic.com/v1/models",
-                headers={
-                    "x-api-key": anthropic_key,
-                    "anthropic-version": "2023-06-01"
-                },
-                timeout=10
-            )
-            if response.status_code == 200:
-                print(f"\r  {color('✓', Colors.GREEN)} Anthropic API                           ")
-            elif response.status_code == 401:
-                print(f"\r  {color('✗', Colors.RED)} Anthropic API {color('(invalid API key)', Colors.DIM)}                 ")
-            else:
-                msg = "(couldn't verify)"
-                print(f"\r  {color('⚠', Colors.YELLOW)} Anthropic API {color(msg, Colors.DIM)}                 ")
-        except Exception as e:
-            print(f"\r  {color('⚠', Colors.YELLOW)} Anthropic API {color(f'({e})', Colors.DIM)}                 ")
+    # Ollama connectivity
+    try:
+        result = subprocess.run(
+            ["ollama", "list"], capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            lines = result.stdout.strip().split("\n")
+            model_count = max(0, len(lines) - 1)  # exclude header
+            check_ok(f"Ollama ({model_count} model{'s' if model_count != 1 else ''} available)")
+        else:
+            check_warn("Ollama (not running — start with: ollama serve)")
+    except FileNotFoundError:
+        check_warn("Ollama (not installed — get it from https://ollama.com)")
+    except subprocess.TimeoutExpired:
+        check_warn("Ollama (not responding)")
+    except Exception as e:
+        check_warn(f"Ollama ({e})")
     
     # =========================================================================
     # Check: Submodules
@@ -485,7 +456,7 @@ def run_doctor(args):
         # Count disabled tools with API key requirements
         api_disabled = [u for u in unavailable if (u.get("missing_vars") or u.get("env_vars"))]
         if api_disabled:
-            issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
+            issues.append("Run 'orahermes setup' to configure missing API keys for full tool access")
     except Exception as e:
         check_warn("Could not check tool availability", f"({e})")
     
@@ -512,7 +483,7 @@ def run_doctor(args):
         if q_count > 0:
             check_warn(f"{q_count} skill(s) in quarantine", "(pending review)")
     else:
-        check_warn("Skills Hub directory not initialized", "(run: hermes skills list)")
+        check_warn("Skills Hub directory not initialized", "(run: orahermes skills list)")
 
     from hermes_cli.config import get_env_value
     github_token = get_env_value("GITHUB_TOKEN") or get_env_value("GH_TOKEN")
@@ -546,7 +517,7 @@ def run_doctor(args):
             print(f"  {i}. {issue}")
         print()
         if not should_fix:
-            print(color("  Tip: run 'hermes doctor --fix' to auto-fix what's possible.", Colors.DIM))
+            print(color("  Tip: run 'orahermes doctor --fix' to auto-fix what's possible.", Colors.DIM))
     else:
         print(color("─" * 60, Colors.GREEN))
         print(color("  All checks passed! 🎉", Colors.GREEN, Colors.BOLD))

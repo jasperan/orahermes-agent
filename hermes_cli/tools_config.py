@@ -1,7 +1,7 @@
 """
 Interactive tool configuration for Hermes Agent.
 
-`hermes tools` — select a platform, then toggle toolsets on/off via checklist.
+`orahermes tools` — select a platform, then toggle toolsets on/off via checklist.
 Saves per-platform tool configuration to ~/.hermes/config.yaml under
 the `platform_toolsets` key.
 """
@@ -273,11 +273,11 @@ def _check_and_prompt_requirements(newly_enabled: Set[str]):
                 else:
                     print(color(f"    Skipped", Colors.DIM))
         else:
-            print(color("    Skipped — configure later with 'hermes setup'", Colors.DIM))
+            print(color("    Skipped — configure later with 'orahermes setup'", Colors.DIM))
 
 
 def tools_command(args):
-    """Entry point for `hermes tools`."""
+    """Entry point for `orahermes tools`."""
     config = load_config()
     enabled_platforms = _get_enabled_platforms()
 
@@ -347,5 +347,5 @@ def tools_command(args):
 
     print()
     print(color("  Tool configuration saved to ~/.hermes/config.yaml", Colors.DIM))
-    print(color("  Changes take effect on next 'hermes' or gateway restart.", Colors.DIM))
+    print(color("  Changes take effect on next 'orahermes' or gateway restart.", Colors.DIM))
     print()

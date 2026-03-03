@@ -6,10 +6,10 @@ Config files are stored in ~/.hermes/ for easy access:
 - ~/.hermes/.env         - API keys and secrets
 
 This module provides:
-- hermes config          - Show current configuration
-- hermes config edit     - Open config in editor
-- hermes config set      - Set a specific value
-- hermes config wizard   - Re-run setup wizard
+- orahermes config          - Show current configuration
+- orahermes config edit     - Open config in editor
+- orahermes config set      - Set a specific value
+- orahermes config wizard   - Re-run setup wizard
 """
 
 import os
@@ -754,9 +754,9 @@ def show_config():
     
     print()
     print(color("─" * 60, Colors.DIM))
-    print(color("  hermes config edit     # Edit config file", Colors.DIM))
-    print(color("  hermes config set KEY VALUE", Colors.DIM))
-    print(color("  hermes setup           # Run setup wizard", Colors.DIM))
+    print(color("  orahermes config edit     # Edit config file", Colors.DIM))
+    print(color("  orahermes config set KEY VALUE", Colors.DIM))
+    print(color("  orahermes setup           # Run setup wizard", Colors.DIM))
     print()
 
 
@@ -879,12 +879,12 @@ def config_command(args):
         key = getattr(args, 'key', None)
         value = getattr(args, 'value', None)
         if not key or not value:
-            print("Usage: hermes config set KEY VALUE")
+            print("Usage: orahermes config set KEY VALUE")
             print()
             print("Examples:")
-            print("  hermes config set model xai.grok-3-mini")
-            print("  hermes config set terminal.backend docker")
-            print("  hermes config set OCI_REGION us-chicago-1")
+            print("  orahermes config set model xai.grok-3-mini")
+            print("  orahermes config set terminal.backend docker")
+            print("  orahermes config set OCI_REGION us-chicago-1")
             sys.exit(1)
         set_config_value(key, value)
     
@@ -984,7 +984,7 @@ def config_command(args):
         if missing_config:
             print()
             print(color(f"  {len(missing_config)} new config option(s) available", Colors.YELLOW))
-            print(f"    Run 'hermes config migrate' to add them")
+            print(f"    Run 'orahermes config migrate' to add them")
         
         print()
     
@@ -992,11 +992,11 @@ def config_command(args):
         print(f"Unknown config command: {subcmd}")
         print()
         print("Available commands:")
-        print("  hermes config           Show current configuration")
-        print("  hermes config edit      Open config in editor")
-        print("  hermes config set K V   Set a config value")
-        print("  hermes config check     Check for missing/outdated config")
-        print("  hermes config migrate   Update config with new options")
-        print("  hermes config path      Show config file path")
-        print("  hermes config env-path  Show .env file path")
+        print("  orahermes config           Show current configuration")
+        print("  orahermes config edit      Open config in editor")
+        print("  orahermes config set K V   Set a config value")
+        print("  orahermes config check     Check for missing/outdated config")
+        print("  orahermes config migrate   Update config with new options")
+        print("  orahermes config path      Show config file path")
+        print("  orahermes config env-path  Show .env file path")
         sys.exit(1)

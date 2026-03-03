@@ -1,7 +1,7 @@
 """
 Gateway subcommand for hermes CLI.
 
-Handles: hermes gateway [run|start|stop|restart|status|install|uninstall]
+Handles: orahermes gateway [run|start|stop|restart|status|install|uninstall]
 """
 
 import asyncio
@@ -25,6 +25,7 @@ def find_gateway_pids() -> list:
         # Look for gateway processes with multiple patterns
         patterns = [
             "hermes_cli.main gateway",
+            "orahermes gateway",
             "hermes gateway",
             "gateway/run.py",
         ]
@@ -163,8 +164,8 @@ def systemd_install(force: bool = False):
     print("✓ Service installed and enabled!")
     print()
     print("Next steps:")
-    print(f"  hermes gateway start              # Start the service")
-    print(f"  hermes gateway status             # Check status")
+    print(f"  orahermes gateway start              # Start the service")
+    print(f"  orahermes gateway status             # Check status")
     print(f"  journalctl --user -u {SERVICE_NAME} -f  # View logs")
     print()
     print("To enable lingering (keeps running after logout):")
@@ -199,9 +200,9 @@ def systemd_status(deep: bool = False):
     unit_path = get_systemd_unit_path()
     if not unit_path.exists():
         print("✗ Gateway service is not installed")
-        print("  Run: hermes gateway install")
+        print("  Run: orahermes gateway install")
         return
-    
+
     # Show detailed status first
     subprocess.run(
         ["systemctl", "--user", "status", SERVICE_NAME, "--no-pager"],
@@ -221,8 +222,8 @@ def systemd_status(deep: bool = False):
         print("✓ Gateway service is running")
     else:
         print("✗ Gateway service is stopped")
-        print("  Run: hermes gateway start")
-    
+        print("  Run: orahermes gateway start")
+
     if deep:
         print()
         print("Recent logs:")
@@ -297,7 +298,7 @@ def launchd_install(force: bool = False):
     print("✓ Service installed and loaded!")
     print()
     print("Next steps:")
-    print("  hermes gateway status             # Check status")
+    print("  orahermes gateway status             # Check status")
     print("  tail -f ~/.hermes/logs/gateway.log  # View logs")
 
 def launchd_uninstall():
@@ -391,7 +392,7 @@ def gateway_command(args):
             launchd_install(force)
         else:
             print("Service installation not supported on this platform.")
-            print("Run manually: hermes gateway run")
+            print("Run manually: orahermes gateway run")
             sys.exit(1)
     
     elif subcmd == "uninstall":
@@ -483,10 +484,10 @@ def gateway_command(args):
                 print("  (Running manually, not as a system service)")
                 print()
                 print("To install as a service:")
-                print("  hermes gateway install")
+                print("  orahermes gateway install")
             else:
                 print("✗ Gateway is not running")
                 print()
                 print("To start:")
-                print("  hermes gateway          # Run in foreground")
-                print("  hermes gateway install  # Install as service")
+                print("  orahermes gateway          # Run in foreground")
+                print("  orahermes gateway install  # Install as service")

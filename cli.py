@@ -1055,7 +1055,7 @@ class HermesCLI:
                     if len(item["tools"]) > 2:
                         tools_str += f", +{len(item['tools'])-2} more"
                     self.console.print(f"   [dim]• {item['name']}[/] [dim italic]({', '.join(item['missing_vars'])})[/]")
-                self.console.print("[dim]   Run 'hermes setup' to configure[/]")
+                self.console.print("[dim]   Run 'orahermes setup' to configure[/]")
         except Exception:
             pass  # Don't crash on import errors
     

@@ -1,8 +1,8 @@
 """
 Canonical model lists for CLI and setup wizards.
 
-Add, remove, or reorder entries here — both `hermes setup` and
-`hermes` provider-selection will pick up the change automatically.
+Add, remove, or reorder entries here — both `orahermes setup` and
+`orahermes` provider-selection will pick up the change automatically.
 """
 
 # (model_id, display description shown in menus)

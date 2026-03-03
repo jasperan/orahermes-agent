@@ -3,25 +3,25 @@
 Hermes CLI - Main entry point.
 
 Usage:
-    hermes                     # Interactive chat (default)
-    hermes chat                # Interactive chat
-    hermes gateway             # Run gateway in foreground
-    hermes gateway start       # Start gateway as service
-    hermes gateway stop        # Stop gateway service
-    hermes gateway status      # Show gateway status
-    hermes gateway install     # Install gateway service
-    hermes gateway uninstall   # Uninstall gateway service
-    hermes setup               # Interactive setup wizard
-    hermes login               # Authenticate with Nous Portal (or other providers)
-    hermes logout              # Clear stored authentication
-    hermes status              # Show status of all components
-    hermes cron                # Manage cron jobs
-    hermes cron list           # List cron jobs
-    hermes cron status         # Check if cron scheduler is running
-    hermes doctor              # Check configuration and dependencies
-    hermes version             # Show version
-    hermes update              # Update to latest version
-    hermes uninstall           # Uninstall Hermes Agent
+    orahermes                     # Interactive chat (default)
+    orahermes chat                # Interactive chat
+    orahermes gateway             # Run gateway in foreground
+    orahermes gateway start       # Start gateway as service
+    orahermes gateway stop        # Stop gateway service
+    orahermes gateway status      # Show gateway status
+    orahermes gateway install     # Install gateway service
+    orahermes gateway uninstall   # Uninstall gateway service
+    orahermes setup               # Interactive setup wizard
+    orahermes login               # Authenticate with Nous Portal (or other providers)
+    orahermes logout              # Clear stored authentication
+    orahermes status              # Show status of all components
+    orahermes cron                # Manage cron jobs
+    orahermes cron list           # List cron jobs
+    orahermes cron status         # Check if cron scheduler is running
+    orahermes doctor              # Check configuration and dependencies
+    orahermes version             # Show version
+    orahermes update              # Update to latest version
+    orahermes uninstall           # Uninstall Hermes Agent
 """
 
 import argparse
@@ -130,7 +130,7 @@ def cmd_chat(args):
         print()
         print("It looks like Hermes isn't configured yet -- no API keys or providers found.")
         print()
-        print("  Run:  hermes setup")
+        print("  Run:  orahermes setup")
         print()
         try:
             reply = input("Run setup now? [Y/n] ").strip().lower()
@@ -140,7 +140,7 @@ def cmd_chat(args):
             cmd_setup(args)
             return
         print()
-        print("You can run 'hermes setup' at any time to configure.")
+        print("You can run 'orahermes setup' at any time to configure.")
         sys.exit(1)
 
     # Import and run the CLI
@@ -248,7 +248,7 @@ def cmd_whatsapp(args):
             print("  ✓ Session cleared")
         else:
             print("\n✓ WhatsApp is configured and paired!")
-            print("  Start the gateway with: hermes gateway")
+            print("  Start the gateway with: orahermes gateway")
             return
 
     # Step 5: Run bridge in pair-only mode (no HTTP server, exits after QR scan)
@@ -271,10 +271,10 @@ def cmd_whatsapp(args):
     if (session_dir / "creds.json").exists():
         print("✓ WhatsApp paired successfully!")
         print()
-        print("Start the gateway with: hermes gateway")
-        print("Or install as a service: hermes gateway install")
+        print("Start the gateway with: orahermes gateway")
+        print("Or install as a service: orahermes gateway install")
     else:
-        print("⚠ Pairing may not have completed. Run 'hermes whatsapp' to try again.")
+        print("⚠ Pairing may not have completed. Run 'orahermes whatsapp' to try again.")
 
 
 def cmd_setup(args):
@@ -566,7 +566,7 @@ def _model_flow_custom(config):
     else:
         if base_url or api_key:
             deactivate_provider()
-        print("Endpoint saved. Use `/model` in chat or `hermes model` to set a model.")
+        print("Endpoint saved. Use `/model` in chat or `orahermes model` to set a model.")
 
 
 def cmd_login(args):
@@ -748,7 +748,7 @@ def cmd_update(args):
                     print("✓ Configuration updated!")
             else:
                 print()
-                print("Skipped. Run 'hermes config migrate' later to configure.")
+                print("Skipped. Run 'orahermes config migrate' later to configure.")
         else:
             print("  ✓ Configuration is up to date")
         
@@ -772,13 +772,13 @@ def cmd_update(args):
                     print("✓ Gateway restarted.")
                 else:
                     print(f"⚠ Gateway restart failed: {restart.stderr.strip()}")
-                    print("  Try manually: hermes gateway restart")
+                    print("  Try manually: orahermes gateway restart")
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass  # No systemd (macOS, WSL1, etc.) — skip silently
         
         print()
         print("Tip: You can now log in with Nous Portal for inference:")
-        print("  hermes login              # Authenticate with Nous Portal")
+        print("  orahermes login              # Authenticate with Nous Portal")
         
     except subprocess.CalledProcessError as e:
         print(f"✗ Update failed: {e}")
@@ -788,29 +788,29 @@ def cmd_update(args):
 def main():
     """Main entry point for hermes CLI."""
     parser = argparse.ArgumentParser(
-        prog="hermes",
+        prog="orahermes",
         description="Hermes Agent - AI assistant with tool-calling capabilities",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    hermes                        Start interactive chat
-    hermes chat -q "Hello"        Single query mode
-    hermes --continue             Resume the most recent session
-    hermes --resume <session_id>  Resume a specific session
-    hermes setup                  Run setup wizard
-    hermes login                  Authenticate with an inference provider
-    hermes logout                 Clear stored authentication
-    hermes model                  Select default model
-    hermes config                 View configuration
-    hermes config edit            Edit config in $EDITOR
-    hermes config set model gpt-4 Set a config value
-    hermes gateway                Run messaging gateway
-    hermes gateway install        Install as system service
-    hermes sessions list          List past sessions
-    hermes update                 Update to latest version
+    orahermes                        Start interactive chat
+    orahermes chat -q "Hello"        Single query mode
+    orahermes --continue             Resume the most recent session
+    orahermes --resume <session_id>  Resume a specific session
+    orahermes setup                  Run setup wizard
+    orahermes login                  Authenticate with an inference provider
+    orahermes logout                 Clear stored authentication
+    orahermes model                  Select default model
+    orahermes config                 View configuration
+    orahermes config edit            Edit config in $EDITOR
+    orahermes config set model gpt-4 Set a config value
+    orahermes gateway                Run messaging gateway
+    orahermes gateway install        Install as system service
+    orahermes sessions list          List past sessions
+    orahermes update                 Update to latest version
 
 For more help on a command:
-    hermes <command> --help
+    orahermes <command> --help
 """
     )
     
@@ -823,7 +823,7 @@ For more help on a command:
         "--resume", "-r",
         metavar="SESSION_ID",
         default=None,
-        help="Resume a previous session by ID (shortcut for: hermes chat --resume ID)"
+        help="Resume a previous session by ID (shortcut for: orahermes chat --resume ID)"
     )
     parser.add_argument(
         "--continue", "-c",

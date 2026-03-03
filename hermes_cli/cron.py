@@ -1,11 +1,11 @@
 """
 Cron subcommand for hermes CLI.
 
-Handles: hermes cron [list|status|tick]
+Handles: orahermes cron [list|status|tick]
 
-Cronjobs are executed automatically by the gateway daemon (hermes gateway).
+Cronjobs are executed automatically by the gateway daemon (orahermes gateway).
 Install the gateway as a service for background execution:
-    hermes gateway install
+    orahermes gateway install
 """
 
 import sys
@@ -72,7 +72,7 @@ def cron_list(show_all: bool = False):
     from hermes_cli.gateway import find_gateway_pids
     if not find_gateway_pids():
         print(color("  ⚠  Gateway is not running — jobs won't fire automatically.", Colors.YELLOW))
-        print(color("     Start it with: hermes gateway install", Colors.DIM))
+        print(color("     Start it with: orahermes gateway install", Colors.DIM))
         print()
 
 
@@ -97,8 +97,8 @@ def cron_status():
         print(color("✗ Gateway is not running — cron jobs will NOT fire", Colors.RED))
         print()
         print("  To enable automatic execution:")
-        print("    hermes gateway install    # Install as system service (recommended)")
-        print("    hermes gateway            # Or run in foreground")
+        print("    orahermes gateway install    # Install as system service (recommended)")
+        print("    orahermes gateway            # Or run in foreground")
     
     print()
     
@@ -130,5 +130,5 @@ def cron_command(args):
     
     else:
         print(f"Unknown cron command: {subcmd}")
-        print("Usage: hermes cron [list|status|tick]")
+        print("Usage: orahermes cron [list|status|tick]")
         sys.exit(1)
