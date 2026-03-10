@@ -88,6 +88,7 @@ def _discover_tools():
         "tools.todo_tool",
         "tools.memory_tool",
         "tools.session_search_tool",
+        "tools.semantic_recall_tool",
         "tools.clarify_tool",
         "tools.code_execution_tool",
         "tools.delegate_tool",
@@ -237,7 +238,7 @@ def get_tool_definitions(
 # because they need agent-level state (TodoStore, MemoryStore, etc.).
 # The registry still holds their schemas; dispatch just returns a stub error
 # so if something slips through, the LLM sees a sensible message.
-_AGENT_LOOP_TOOLS = {"todo", "memory", "session_search", "delegate_task"}
+_AGENT_LOOP_TOOLS = {"todo", "memory", "session_search", "semantic_recall", "delegate_task"}
 
 
 def handle_function_call(

@@ -52,6 +52,8 @@ _HERMES_CORE_TOOLS = [
     "todo", "memory",
     # Session history search
     "session_search",
+    # Semantic vector recall
+    "semantic_recall",
     # Clarifying questions
     "clarify",
     # Code execution + delegation
@@ -165,6 +167,12 @@ TOOLSETS = {
     "session_search": {
         "description": "Search and recall past conversations with summarization",
         "tools": ["session_search"],
+        "includes": []
+    },
+
+    "semantic_recall": {
+        "description": "Semantic vector search over past conversations using Oracle AI Vector Search",
+        "tools": ["semantic_recall"],
         "includes": []
     },
     

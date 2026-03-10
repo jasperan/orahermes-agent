@@ -571,6 +571,25 @@ class AIAgent:
         self._save_session_log(messages)
         self._flush_messages_to_session_db(messages, conversation_history)
 
+    def _embed_message_async(self, msg_id: int, content: str):
+        """Fire-and-forget vector embedding for a message.
+
+        Runs in a background thread so it never blocks the agent loop.
+        Safe no-op if the DB doesn't support embeddings (SQLite, or Oracle
+        without the vector migration applied).
+        """
+        if not self._session_db or not content or not hasattr(self._session_db, "embed_message"):
+            return
+        try:
+            t = threading.Thread(
+                target=self._session_db.embed_message,
+                args=(msg_id, content),
+                daemon=True,
+            )
+            t.start()
+        except Exception:
+            pass  # Never let embedding failures affect the agent
+
     def _log_msg_to_db(self, msg: Dict):
         """Log a single message to SQLite immediately. Called after each messages.append()."""
         if not self._session_db:
@@ -586,7 +605,7 @@ class AIAgent:
                 ]
             elif isinstance(msg.get("tool_calls"), list):
                 tool_calls_data = msg["tool_calls"]
-            self._session_db.append_message(
+            msg_id = self._session_db.append_message(
                 session_id=self.session_id,
                 role=role,
                 content=content,
@@ -596,6 +615,8 @@ class AIAgent:
                 finish_reason=msg.get("finish_reason"),
             )
             self._db_logged_count += 1
+            # Fire-and-forget vector embedding (non-blocking)
+            self._embed_message_async(msg_id, content)
         except Exception as e:
             logger.debug("Session DB log_msg failed: %s", e)
 
@@ -628,7 +649,7 @@ class AIAgent:
                     ]
                 elif isinstance(msg.get("tool_calls"), list):
                     tool_calls_data = msg["tool_calls"]
-                self._session_db.append_message(
+                msg_id = self._session_db.append_message(
                     session_id=self.session_id,
                     role=role,
                     content=content,
@@ -637,6 +658,7 @@ class AIAgent:
                     tool_call_id=msg.get("tool_call_id"),
                     finish_reason=msg.get("finish_reason"),
                 )
+                self._embed_message_async(msg_id, content)
         except Exception as e:
             logger.debug("Session DB append_message failed: %s", e)
 
@@ -1477,6 +1499,21 @@ class AIAgent:
                 tool_duration = time.time() - tool_start_time
                 if self.quiet_mode:
                     print(f"  {_get_cute_tool_message_impl('session_search', function_args, tool_duration, result=function_result)}")
+            elif function_name == "semantic_recall":
+                if not self._session_db:
+                    function_result = json.dumps({"success": False, "error": "Session database not available."})
+                else:
+                    from tools.semantic_recall_tool import semantic_recall as _semantic_recall
+                    function_result = _semantic_recall(
+                        query=function_args.get("query", ""),
+                        mode=function_args.get("mode", "hybrid"),
+                        role_filter=function_args.get("role_filter"),
+                        limit=function_args.get("limit", 10),
+                        db=self._session_db,
+                    )
+                tool_duration = time.time() - tool_start_time
+                if self.quiet_mode:
+                    print(f"  {_get_cute_tool_message_impl('semantic_recall', function_args, tool_duration, result=function_result)}")
             elif function_name == "memory":
                 from tools.memory_tool import memory_tool as _memory_tool
                 function_result = _memory_tool(
@@ -1549,7 +1586,7 @@ class AIAgent:
                     'skills_list': '📚', 'skill_view': '📚',
                     'schedule_cronjob': '⏰', 'list_cronjobs': '⏰', 'remove_cronjob': '⏰',
                     'send_message': '📨', 'todo': '📋', 'memory': '🧠', 'session_search': '🔍',
-                    'clarify': '❓', 'execute_code': '🐍', 'delegate_task': '🔀',
+                    'semantic_recall': '🧲', 'clarify': '❓', 'execute_code': '🐍', 'delegate_task': '🔀',
                 }
                 emoji = tool_emoji_map.get(function_name, '⚡')
                 preview = _build_tool_preview(function_name, function_args) or function_name

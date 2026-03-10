@@ -1,13 +1,16 @@
 # oracle_state.py
 """Oracle 26ai Free session state storage — replaces SQLite hermes_state.py."""
 
+import logging
 import os
 import time
 import uuid
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import oracledb
+
+logger = logging.getLogger(__name__)
 
 # Auto-convert LOB objects to Python strings/bytes
 oracledb.defaults.fetch_lobs = False
@@ -316,6 +319,215 @@ class OracleSessionDB:
                     }
                     for r in cur.fetchall()
                 ]
+
+    # =========================================================================
+    # Oracle AI Vector Search — semantic memory
+    # =========================================================================
+
+    # Default ONNX embedding model name loaded in Oracle DB
+    EMBEDDING_MODEL = "ALL_MINILM_L6_V2"
+    # MiniLM-L6-v2 has a 512-token limit; truncate input to ~500 chars as safety
+    _EMBED_CHAR_LIMIT = 500
+
+    def _check_vector_support(self) -> bool:
+        """Check if the embedding column and ONNX model exist."""
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    # Check if the embedding column exists on the messages table
+                    cur.execute(
+                        """SELECT COUNT(*) FROM user_tab_columns
+                           WHERE table_name = 'MESSAGES' AND column_name = 'EMBEDDING'"""
+                    )
+                    if cur.fetchone()[0] == 0:
+                        return False
+                    # Check if the ONNX model is available
+                    cur.execute(
+                        """SELECT COUNT(*) FROM all_mining_models
+                           WHERE model_name = :1""",
+                        [self.EMBEDDING_MODEL],
+                    )
+                    return cur.fetchone()[0] > 0
+        except Exception as e:
+            logger.debug("Vector support check failed: %s", e)
+            return False
+
+    def embed_message(self, message_id: int, content: str) -> bool:
+        """Generate and store a vector embedding for a message using in-DB ONNX model.
+
+        Called after append_message to asynchronously back-fill the embedding.
+        Safe to call even if the embedding column doesn't exist (returns False).
+        """
+        if not content or not content.strip():
+            return False
+        # Truncate to fit ONNX model's token limit
+        text = content[:self._EMBED_CHAR_LIMIT]
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """UPDATE messages
+                           SET embedding = VECTOR_EMBEDDING(:1 USING :2 AS data)
+                           WHERE id = :3""",
+                        [self.EMBEDDING_MODEL, text, message_id],
+                    )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.debug("embed_message failed for msg %s: %s", message_id, e)
+            return False
+
+    def semantic_search(
+        self,
+        query: str,
+        role_filter: List[str] = None,
+        limit: int = 20,
+    ) -> List[dict]:
+        """Pure vector similarity search using Oracle AI Vector Search.
+
+        Computes the query embedding in-DB using the same ONNX model and finds
+        the nearest neighbors by cosine distance.
+        """
+        if not query or not query.strip():
+            return []
+        text = query[:self._EMBED_CHAR_LIMIT]
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    role_where = ""
+                    params: dict = {"model": self.EMBEDDING_MODEL, "q": text, "lim": limit}
+                    if role_filter:
+                        placeholders = ",".join(f":r{i}" for i in range(len(role_filter)))
+                        role_where = f"AND m.role IN ({placeholders})"
+                        for i, r in enumerate(role_filter):
+                            params[f"r{i}"] = r
+                    cur.execute(
+                        f"""SELECT m.id, m.session_id, m.role, m.content, m.timestamp_val,
+                                   VECTOR_DISTANCE(m.embedding,
+                                       VECTOR_EMBEDDING(:model USING :q AS data),
+                                       COSINE) AS distance
+                            FROM messages m
+                            WHERE m.embedding IS NOT NULL {role_where}
+                            ORDER BY distance ASC
+                            FETCH FIRST :lim ROWS ONLY""",
+                        params,
+                    )
+                    rows = cur.fetchall()
+                    return [
+                        {
+                            "id": r[0],
+                            "session_id": r[1],
+                            "role": r[2],
+                            "content": r[3],
+                            "timestamp": r[4],
+                            "distance": round(r[5], 4) if r[5] is not None else None,
+                            "similarity": round(1.0 - r[5], 4) if r[5] is not None else None,
+                        }
+                        for r in rows
+                    ]
+        except Exception as e:
+            logger.warning("semantic_search failed: %s", e)
+            return []
+
+    def hybrid_search(
+        self,
+        query: str,
+        role_filter: List[str] = None,
+        limit: int = 20,
+        keyword_weight: float = 0.4,
+        vector_weight: float = 0.6,
+    ) -> List[dict]:
+        """Hybrid search combining Oracle Text keyword search with vector similarity.
+
+        Runs both searches, normalizes scores to [0,1], and re-ranks by weighted
+        combination. Falls back gracefully: if vector search is unavailable, returns
+        keyword results only; if keyword search fails, returns vector results only.
+        """
+        keyword_results = self.search_messages(
+            query=query, role_filter=role_filter, limit=limit * 2,
+        )
+        vector_results = self.semantic_search(
+            query=query, role_filter=role_filter, limit=limit * 2,
+        )
+
+        if not keyword_results and not vector_results:
+            return []
+        if not vector_results:
+            return keyword_results[:limit]
+        if not keyword_results:
+            # Convert vector results to the keyword result format
+            for r in vector_results:
+                r["relevance"] = r.get("similarity", 0.5)
+            return vector_results[:limit]
+
+        # Normalize keyword scores (Oracle Text SCORE is 0-100)
+        max_kw = max((r.get("relevance", 0) for r in keyword_results), default=1) or 1
+        kw_map: Dict[tuple, float] = {}
+        kw_data: Dict[tuple, dict] = {}
+        for r in keyword_results:
+            key = (r["session_id"], r.get("content", "")[:100])
+            kw_map[key] = (r.get("relevance", 0) / max_kw)
+            kw_data[key] = r
+
+        # Normalize vector scores (similarity is already 0-1)
+        vec_map: Dict[tuple, float] = {}
+        vec_data: Dict[tuple, dict] = {}
+        for r in vector_results:
+            key = (r["session_id"], (r.get("content") or "")[:100])
+            vec_map[key] = r.get("similarity", 0)
+            vec_data[key] = r
+
+        # Merge and score
+        all_keys = set(kw_map.keys()) | set(vec_map.keys())
+        scored = []
+        for key in all_keys:
+            kw_score = kw_map.get(key, 0)
+            vec_score = vec_map.get(key, 0)
+            combined = (keyword_weight * kw_score) + (vector_weight * vec_score)
+            data = kw_data.get(key) or vec_data.get(key)
+            data["relevance"] = round(combined, 4)
+            data["keyword_score"] = round(kw_score, 4)
+            data["vector_score"] = round(vec_score, 4)
+            scored.append(data)
+
+        scored.sort(key=lambda x: x["relevance"], reverse=True)
+        return scored[:limit]
+
+    def backfill_embeddings(self, batch_size: int = 100) -> int:
+        """Backfill embeddings for messages that don't have one yet.
+
+        Useful after enabling vector search on an existing database.
+        Returns the number of messages embedded.
+        """
+        count = 0
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """SELECT id, content FROM messages
+                           WHERE embedding IS NULL AND content IS NOT NULL
+                           FETCH FIRST :1 ROWS ONLY""",
+                        [batch_size],
+                    )
+                    rows = cur.fetchall()
+                    for msg_id, content in rows:
+                        text = (content or "")[:self._EMBED_CHAR_LIMIT]
+                        if not text.strip():
+                            continue
+                        try:
+                            cur.execute(
+                                """UPDATE messages
+                                   SET embedding = VECTOR_EMBEDDING(:1 USING :2 AS data)
+                                   WHERE id = :3""",
+                                [self.EMBEDDING_MODEL, text, msg_id],
+                            )
+                            count += 1
+                        except Exception as e:
+                            logger.debug("backfill skip msg %s: %s", msg_id, e)
+                conn.commit()
+        except Exception as e:
+            logger.warning("backfill_embeddings failed: %s", e)
+        return count
 
     def close(self):
         if self.pool:
