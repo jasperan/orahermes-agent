@@ -30,6 +30,7 @@ import re
 import sys
 import time
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import uuid
 from typing import List, Dict, Any, Optional
 from openai import OpenAI
@@ -386,6 +387,8 @@ class AIAgent:
         # SQLite session store (optional -- provided by CLI or gateway)
         self._session_db = session_db
         self._db_logged_count = 0  # Track messages already persisted to DB
+        # Bounded pool for background vector embedding (max 2 concurrent)
+        self._embed_pool = ThreadPoolExecutor(max_workers=2)
         if self._session_db:
             try:
                 self._session_db.create_session(
@@ -581,12 +584,7 @@ class AIAgent:
         if not self._session_db or not content or not hasattr(self._session_db, "embed_message"):
             return
         try:
-            t = threading.Thread(
-                target=self._session_db.embed_message,
-                args=(msg_id, content),
-                daemon=True,
-            )
-            t.start()
+            self._embed_pool.submit(self._session_db.embed_message, msg_id, content)
         except Exception:
             pass  # Never let embedding failures affect the agent
 

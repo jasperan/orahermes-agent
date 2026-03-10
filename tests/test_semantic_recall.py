@@ -178,11 +178,11 @@ class TestOracleStateVectorMethods:
         db.pool = MagicMock()
         db.pool.acquire.return_value = mock_conn
 
-        long_text = "a" * 1000
+        long_text = "a" * 2000
         db.embed_message(1, long_text)
         # Verify the text passed to VECTOR_EMBEDDING was truncated
         call_args = mock_cursor.execute.call_args[0][1]
-        assert len(call_args[1]) == 500  # _EMBED_CHAR_LIMIT
+        assert len(call_args[0]) == 1500  # _EMBED_CHAR_LIMIT
 
     def test_semantic_search_empty_query(self):
         db = self._make_db()

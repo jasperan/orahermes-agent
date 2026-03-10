@@ -327,7 +327,7 @@ class OracleSessionDB:
     # Default ONNX embedding model name loaded in Oracle DB
     EMBEDDING_MODEL = "ALL_MINILM_L6_V2"
     # MiniLM-L6-v2 has a 512-token limit; truncate input to ~500 chars as safety
-    _EMBED_CHAR_LIMIT = 500
+    _EMBED_CHAR_LIMIT = 1500
 
     def _check_vector_support(self) -> bool:
         """Check if the embedding column and ONNX model exist."""
@@ -366,10 +366,10 @@ class OracleSessionDB:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        """UPDATE messages
-                           SET embedding = VECTOR_EMBEDDING(:1 USING :2 AS data)
-                           WHERE id = :3""",
-                        [self.EMBEDDING_MODEL, text, message_id],
+                        f"""UPDATE messages
+                           SET embedding = VECTOR_EMBEDDING({self.EMBEDDING_MODEL} USING :1 AS data)
+                           WHERE id = :2""",
+                        [text, message_id],
                     )
                 conn.commit()
             return True
@@ -395,7 +395,7 @@ class OracleSessionDB:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
                     role_where = ""
-                    params: dict = {"model": self.EMBEDDING_MODEL, "q": text, "lim": limit}
+                    params: dict = {"q": text, "lim": limit}
                     if role_filter:
                         placeholders = ",".join(f":r{i}" for i in range(len(role_filter)))
                         role_where = f"AND m.role IN ({placeholders})"
@@ -404,7 +404,7 @@ class OracleSessionDB:
                     cur.execute(
                         f"""SELECT m.id, m.session_id, m.role, m.content, m.timestamp_val,
                                    VECTOR_DISTANCE(m.embedding,
-                                       VECTOR_EMBEDDING(:model USING :q AS data),
+                                       VECTOR_EMBEDDING({self.EMBEDDING_MODEL} USING :q AS data),
                                        COSINE) AS distance
                             FROM messages m
                             WHERE m.embedding IS NOT NULL {role_where}
@@ -516,10 +516,10 @@ class OracleSessionDB:
                             continue
                         try:
                             cur.execute(
-                                """UPDATE messages
-                                   SET embedding = VECTOR_EMBEDDING(:1 USING :2 AS data)
-                                   WHERE id = :3""",
-                                [self.EMBEDDING_MODEL, text, msg_id],
+                                f"""UPDATE messages
+                                   SET embedding = VECTOR_EMBEDDING({self.EMBEDDING_MODEL} USING :1 AS data)
+                                   WHERE id = :2""",
+                                [text, msg_id],
                             )
                             count += 1
                         except Exception as e:
