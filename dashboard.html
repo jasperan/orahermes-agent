@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>orahermes-agent — Live Dashboard</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0e17;
+    --surface: #111827;
+    --surface2: #1a2332;
+    --border: #1e293b;
+    --accent: #f80000;
+    --accent2: #ff4444;
+    --accent3: #ff6b35;
+    --blue: #3b82f6;
+    --green: #10b981;
+    --purple: #8b5cf6;
+    --yellow: #f59e0b;
+    --cyan: #06b6d4;
+    --text: #e2e8f0;
+    --text2: #94a3b8;
+    --text3: #64748b;
+    --glow: rgba(248, 0, 0, 0.15);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, var(--surface) 0%, var(--surface2) 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 1.25rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(20px);
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .oracle-logo {
+    width: 32px; height: 32px;
+    background: var(--accent);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 900; font-size: 18px; color: white;
+    box-shadow: 0 0 20px var(--glow);
+  }
+
+  .header h1 {
+    font-size: 1.35rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--text) 0%, var(--accent2) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .header h1 span { font-weight: 400; opacity: 0.7; }
+
+  .live-badge {
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    color: var(--green);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .live-dot {
+    width: 8px; height: 8px;
+    background: var(--green);
+    border-radius: 50%;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16,185,129,0.4); }
+    50% { opacity: 0.6; box-shadow: 0 0 0 6px rgba(16,185,129,0); }
+  }
+
+  .refresh-info {
+    color: var(--text3);
+    font-size: 0.75rem;
+  }
+
+  /* Layout */
+  .dashboard {
+    padding: 1.5rem 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  /* KPI Cards */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 1rem;
+  }
+
+  .kpi-card {
+    background: linear-gradient(135deg, var(--surface) 0%, var(--surface2) 100%);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s, border-color 0.2s;
+  }
+
+  .kpi-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent);
+  }
+
+  .kpi-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 3px;
+    border-radius: 12px 12px 0 0;
+  }
+
+  .kpi-card:nth-child(1)::before { background: var(--accent); }
+  .kpi-card:nth-child(2)::before { background: var(--blue); }
+  .kpi-card:nth-child(3)::before { background: var(--green); }
+  .kpi-card:nth-child(4)::before { background: var(--purple); }
+  .kpi-card:nth-child(5)::before { background: var(--yellow); }
+  .kpi-card:nth-child(6)::before { background: var(--cyan); }
+
+  .kpi-label {
+    font-size: 0.75rem;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.5rem;
+  }
+
+  .kpi-value {
+    font-size: 2rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+
+  .kpi-card:nth-child(1) .kpi-value { color: var(--accent2); }
+  .kpi-card:nth-child(2) .kpi-value { color: var(--blue); }
+  .kpi-card:nth-child(3) .kpi-value { color: var(--green); }
+  .kpi-card:nth-child(4) .kpi-value { color: var(--purple); }
+  .kpi-card:nth-child(5) .kpi-value { color: var(--yellow); }
+  .kpi-card:nth-child(6) .kpi-value { color: var(--cyan); }
+
+  .kpi-delta {
+    font-size: 0.7rem;
+    color: var(--green);
+    margin-top: 0.35rem;
+  }
+
+  /* Chart grid */
+  .chart-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+
+  .chart-row.triple {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+    min-height: 320px;
+  }
+
+  .chart-card.wide {
+    grid-column: span 2;
+  }
+
+  .chart-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text2);
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .chart-title .icon {
+    width: 18px; height: 18px;
+    border-radius: 4px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 10px;
+  }
+
+  /* Session table */
+  .session-table-wrap {
+    max-height: 380px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+  }
+
+  th {
+    text-align: left;
+    padding: 0.6rem 0.75rem;
+    color: var(--text3);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0;
+    background: var(--surface);
+  }
+
+  td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid rgba(30, 41, 59, 0.5);
+    color: var(--text2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  tr:hover td {
+    background: rgba(248, 0, 0, 0.03);
+    color: var(--text);
+  }
+
+  .sid {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.7rem;
+    color: var(--cyan);
+  }
+
+  .role-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .role-user { background: rgba(59,130,246,0.15); color: var(--blue); }
+  .role-assistant { background: rgba(139,92,246,0.15); color: var(--purple); }
+  .role-tool { background: rgba(245,158,11,0.15); color: var(--yellow); }
+
+  /* Message feed */
+  .feed {
+    max-height: 380px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .feed-item {
+    padding: 0.65rem 0.85rem;
+    border-radius: 8px;
+    background: var(--surface2);
+    border-left: 3px solid;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    transition: background 0.15s;
+  }
+
+  .feed-item:hover { background: rgba(26,35,50,0.8); }
+  .feed-item.user { border-color: var(--blue); }
+  .feed-item.assistant { border-color: var(--purple); }
+  .feed-item.tool { border-color: var(--yellow); }
+
+  .feed-item .feed-role {
+    font-weight: 700;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+  }
+
+  .feed-item.user .feed-role { color: var(--blue); }
+  .feed-item.assistant .feed-role { color: var(--purple); }
+  .feed-item.tool .feed-role { color: var(--yellow); }
+
+  .feed-item .feed-content {
+    color: var(--text2);
+    word-break: break-word;
+  }
+
+  .feed-item.new-item {
+    animation: slideIn 0.4s ease-out;
+  }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* D3 chart styles */
+  .bar { transition: opacity 0.2s; }
+  .bar:hover { opacity: 0.8; }
+  .axis text { fill: var(--text3); font-size: 11px; }
+  .axis path, .axis line { stroke: var(--border); }
+  .grid line { stroke: var(--border); stroke-opacity: 0.3; }
+
+  .tooltip {
+    position: absolute;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.75rem;
+    color: var(--text);
+    pointer-events: none;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    z-index: 200;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  /* Donut chart legend */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+    justify-content: center;
+  }
+
+  .legend-item {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.75rem; color: var(--text2);
+  }
+
+  .legend-swatch {
+    width: 10px; height: 10px; border-radius: 3px;
+  }
+
+  /* Responsive */
+  @media (max-width: 1400px) {
+    .kpi-row { grid-template-columns: repeat(3, 1fr); }
+  }
+
+  @media (max-width: 1200px) {
+    .chart-row { grid-template-columns: 1fr; }
+    .chart-row.triple { grid-template-columns: 1fr 1fr; }
+    .chart-card.wide { grid-column: span 1; }
+  }
+
+  @media (max-width: 768px) {
+    .kpi-row { grid-template-columns: repeat(2, 1fr); }
+    .chart-row.triple { grid-template-columns: 1fr; }
+    .dashboard { padding: 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div class="oracle-logo">O</div>
+    <h1>orahermes-agent <span>/ live dashboard</span></h1>
+  </div>
+  <div style="display:flex;align-items:center;gap:1.5rem;">
+    <div class="live-badge"><div class="live-dot"></div> Live</div>
+    <div class="refresh-info" id="refresh-info">Refreshing every 3s</div>
+  </div>
+</div>
+
+<div class="dashboard">
+  <!-- KPI row -->
+  <div class="kpi-row">
+    <div class="kpi-card">
+      <div class="kpi-label">Sessions</div>
+      <div class="kpi-value" id="kpi-sessions">—</div>
+      <div class="kpi-delta" id="kpi-sessions-delta"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Messages</div>
+      <div class="kpi-value" id="kpi-messages">—</div>
+      <div class="kpi-delta" id="kpi-messages-delta"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Tool Calls</div>
+      <div class="kpi-value" id="kpi-tools">—</div>
+      <div class="kpi-delta" id="kpi-tools-delta"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Est. Input Tokens</div>
+      <div class="kpi-value" id="kpi-input-tokens">—</div>
+      <div class="kpi-delta" id="kpi-input-tokens-delta"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Est. Output Tokens</div>
+      <div class="kpi-value" id="kpi-output-tokens">—</div>
+      <div class="kpi-delta" id="kpi-output-tokens-delta"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Total Est. Tokens</div>
+      <div class="kpi-value" id="kpi-total-tokens">—</div>
+      <div class="kpi-delta" id="kpi-total-tokens-delta"></div>
+    </div>
+  </div>
+
+  <!-- Charts row 1 -->
+  <div class="chart-row">
+    <div class="chart-card">
+      <div class="chart-title"><span class="icon" style="background:rgba(139,92,246,0.2);color:var(--purple);">&#9679;</span> Role Distribution</div>
+      <div id="chart-roles"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title"><span class="icon" style="background:rgba(245,158,11,0.2);color:var(--yellow);">&#9650;</span> Tool Usage</div>
+      <div id="chart-tools"></div>
+    </div>
+  </div>
+
+  <!-- Charts row 2: Token estimation -->
+  <div class="chart-row">
+    <div class="chart-card">
+      <div class="chart-title"><span class="icon" style="background:rgba(6,182,212,0.2);color:var(--cyan);">&#9670;</span> Token Usage by Role (Estimated)</div>
+      <div id="chart-token-roles"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title"><span class="icon" style="background:rgba(248,0,0,0.2);color:var(--accent2);">&#9644;</span> Tokens per Session (Input vs Output)</div>
+      <div id="chart-token-sessions"></div>
+    </div>
+  </div>
+
+  <!-- Charts row 3 -->
+  <div class="chart-row">
+    <div class="chart-card wide">
+      <div class="chart-title"><span class="icon" style="background:rgba(6,182,212,0.2);color:var(--cyan);">&#9644;</span> Messages per Session (Timeline)</div>
+      <div id="chart-timeline"></div>
+    </div>
+  </div>
+
+  <!-- Charts row 4 -->
+  <div class="chart-row">
+    <div class="chart-card wide">
+      <div class="chart-title"><span class="icon" style="background:rgba(248,0,0,0.2);color:var(--accent2);">&#9632;</span> Content Length Distribution</div>
+      <div id="chart-lengths"></div>
+    </div>
+  </div>
+
+  <!-- Sessions table + Live feed -->
+  <div class="chart-row">
+    <div class="chart-card">
+      <div class="chart-title"><span class="icon" style="background:rgba(59,130,246,0.2);color:var(--blue);">&#9679;</span> Recent Sessions</div>
+      <div class="session-table-wrap">
+        <table>
+          <thead>
+            <tr><th>Session ID</th><th>Model</th><th>Msgs</th><th>Tools</th><th>Status</th></tr>
+          </thead>
+          <tbody id="session-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title"><span class="icon" style="background:rgba(16,185,129,0.2);color:var(--green);">&#9654;</span> Live Message Feed</div>
+      <div class="feed" id="message-feed"></div>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const API = '';
+const REFRESH_MS = 3000;
+const ROLE_COLORS = { user: '#3b82f6', assistant: '#8b5cf6', tool: '#f59e0b' };
+const CHART_COLORS = ['#f80000', '#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#06b6d4', '#ff6b35', '#ec4899'];
+
+let prevOverview = null;
+let prevTokens = null;
+let prevMessageCount = 0;
+let tooltip = d3.select('#tooltip');
+
+// ── KPI ──
+async function updateKPIs() {
+  const data = await fetch(`${API}/api/overview`).then(r => r.json());
+
+  animateValue('kpi-sessions', data.total_sessions);
+  animateValue('kpi-messages', data.total_messages);
+  animateValue('kpi-tools', data.tool_messages);
+
+  if (prevOverview) {
+    const ds = data.total_sessions - prevOverview.total_sessions;
+    const dm = data.total_messages - prevOverview.total_messages;
+    const dt = data.tool_messages - prevOverview.tool_messages;
+    if (ds > 0) document.getElementById('kpi-sessions-delta').textContent = `+${ds} new`;
+    if (dm > 0) document.getElementById('kpi-messages-delta').textContent = `+${dm} new`;
+    if (dt > 0) document.getElementById('kpi-tools-delta').textContent = `+${dt} new`;
+  }
+  prevOverview = data;
+}
+
+function animateValue(id, target) {
+  const el = document.getElementById(id);
+  const current = parseInt(el.textContent.replace(/,/g, '')) || 0;
+  if (current === target) return;
+  const duration = 400;
+  const start = performance.now();
+  function step(now) {
+    const progress = Math.min((now - start) / duration, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    el.textContent = Math.round(current + (target - current) * eased).toLocaleString();
+    if (progress < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+// ── Role donut ──
+async function updateRoles() {
+  const data = await fetch(`${API}/api/roles`).then(r => r.json());
+  const container = d3.select('#chart-roles');
+  container.selectAll('*').remove();
+
+  const width = container.node().clientWidth;
+  const size = Math.min(width, 240);
+  const radius = size / 2;
+
+  const svg = container.append('svg')
+    .attr('width', width).attr('height', size)
+    .append('g')
+    .attr('transform', `translate(${width/2},${radius})`);
+
+  const pie = d3.pie().value(d => d.count).sort(null).padAngle(0.03);
+  const arc = d3.arc().innerRadius(radius * 0.55).outerRadius(radius * 0.88);
+  const total = d3.sum(data, d => d.count);
+
+  svg.selectAll('path')
+    .data(pie(data))
+    .join('path')
+    .attr('d', arc)
+    .attr('fill', (d, i) => ROLE_COLORS[d.data.role] || CHART_COLORS[i])
+    .attr('stroke', '#0a0e17').attr('stroke-width', 2)
+    .style('cursor', 'pointer')
+    .on('mouseover', function(event, d) {
+      tooltip.style('opacity', 1)
+        .html(`<strong>${d.data.role}</strong><br>${d.data.count} messages (${Math.round(d.data.count/total*100)}%)`)
+        .style('left', (event.pageX + 12) + 'px')
+        .style('top', (event.pageY - 20) + 'px');
+      d3.select(this).attr('opacity', 0.8);
+    })
+    .on('mouseout', function() {
+      tooltip.style('opacity', 0);
+      d3.select(this).attr('opacity', 1);
+    });
+
+  // Center text
+  svg.append('text').attr('text-anchor', 'middle').attr('dy', '-0.1em')
+    .attr('fill', '#e2e8f0').attr('font-size', '1.5rem').attr('font-weight', '800')
+    .text(total);
+  svg.append('text').attr('text-anchor', 'middle').attr('dy', '1.3em')
+    .attr('fill', '#64748b').attr('font-size', '0.7rem').attr('font-weight', '600')
+    .text('TOTAL');
+
+  // Legend
+  const legend = container.append('div').attr('class', 'legend');
+  data.forEach((d, i) => {
+    const item = legend.append('div').attr('class', 'legend-item');
+    item.append('div').attr('class', 'legend-swatch')
+      .style('background', ROLE_COLORS[d.role] || CHART_COLORS[i]);
+    item.append('span').text(`${d.role} (${d.count})`);
+  });
+}
+
+// ── Tool usage bar chart ──
+async function updateTools() {
+  const data = await fetch(`${API}/api/tools`).then(r => r.json());
+  const container = d3.select('#chart-tools');
+  container.selectAll('*').remove();
+
+  if (!data.length) {
+    container.append('div').style('color', '#64748b').style('text-align', 'center')
+      .style('padding-top', '80px').text('No tool usage data yet');
+    return;
+  }
+
+  const margin = { top: 10, right: 20, bottom: 30, left: 120 };
+  const width = container.node().clientWidth - margin.left - margin.right;
+  const height = Math.max(200, data.length * 32);
+
+  const svg = container.append('svg')
+    .attr('width', width + margin.left + margin.right)
+    .attr('height', height + margin.top + margin.bottom)
+    .append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  const x = d3.scaleLinear().domain([0, d3.max(data, d => d.count)]).range([0, width]);
+  const y = d3.scaleBand().domain(data.map(d => d.tool)).range([0, height]).padding(0.35);
+
+  svg.selectAll('.bar')
+    .data(data)
+    .join('rect')
+    .attr('class', 'bar')
+    .attr('x', 0).attr('y', d => y(d.tool))
+    .attr('width', d => x(d.count)).attr('height', y.bandwidth())
+    .attr('fill', (d, i) => CHART_COLORS[i % CHART_COLORS.length])
+    .attr('rx', 4)
+    .on('mouseover', function(event, d) {
+      tooltip.style('opacity', 1)
+        .html(`<strong>${d.tool}</strong><br>${d.count} calls`)
+        .style('left', (event.pageX + 12) + 'px')
+        .style('top', (event.pageY - 20) + 'px');
+    })
+    .on('mouseout', () => tooltip.style('opacity', 0));
+
+  // Labels
+  svg.selectAll('.bar-label')
+    .data(data)
+    .join('text')
+    .attr('x', d => x(d.count) + 6)
+    .attr('y', d => y(d.tool) + y.bandwidth() / 2)
+    .attr('dy', '0.35em')
+    .attr('fill', '#94a3b8').attr('font-size', '11px').attr('font-weight', '600')
+    .text(d => d.count);
+
+  svg.append('g').attr('class', 'axis')
+    .call(d3.axisLeft(y).tickSize(0).tickPadding(8))
+    .select('.domain').remove();
+}
+
+// ── Timeline bar chart ──
+async function updateTimeline() {
+  const data = await fetch(`${API}/api/timeline`).then(r => r.json());
+  const container = d3.select('#chart-timeline');
+  container.selectAll('*').remove();
+
+  const margin = { top: 10, right: 30, bottom: 40, left: 50 };
+  const width = container.node().clientWidth - margin.left - margin.right;
+  const height = 240;
+
+  const svg = container.append('svg')
+    .attr('width', width + margin.left + margin.right)
+    .attr('height', height + margin.top + margin.bottom)
+    .append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  const x = d3.scaleBand().domain(data.map((d, i) => i)).range([0, width]).padding(0.25);
+  const maxVal = d3.max(data, d => d.message_count) || 1;
+  const y = d3.scaleLinear().domain([0, maxVal]).nice().range([height, 0]);
+
+  // Grid
+  svg.append('g').attr('class', 'grid')
+    .call(d3.axisLeft(y).tickSize(-width).tickFormat(''))
+    .select('.domain').remove();
+
+  // Bars - messages
+  svg.selectAll('.bar-msg')
+    .data(data)
+    .join('rect')
+    .attr('class', 'bar')
+    .attr('x', (d, i) => x(i))
+    .attr('y', d => y(d.message_count))
+    .attr('width', x.bandwidth())
+    .attr('height', d => height - y(d.message_count))
+    .attr('fill', '#3b82f6')
+    .attr('rx', 3)
+    .on('mouseover', function(event, d) {
+      tooltip.style('opacity', 1)
+        .html(`<strong>${d.session_id}...</strong><br>Messages: ${d.message_count}<br>Tools: ${d.tool_call_count}<br>Model: ${d.model}`)
+        .style('left', (event.pageX + 12) + 'px')
+        .style('top', (event.pageY - 20) + 'px');
+      d3.select(this).attr('fill', '#60a5fa');
+    })
+    .on('mouseout', function() {
+      tooltip.style('opacity', 0);
+      d3.select(this).attr('fill', '#3b82f6');
+    });
+
+  // Tool call overlay
+  svg.selectAll('.bar-tool')
+    .data(data)
+    .join('rect')
+    .attr('x', (d, i) => x(i))
+    .attr('y', d => y(d.tool_call_count))
+    .attr('width', x.bandwidth())
+    .attr('height', d => height - y(d.tool_call_count))
+    .attr('fill', '#f59e0b')
+    .attr('opacity', 0.6)
+    .attr('rx', 3)
+    .style('pointer-events', 'none');
+
+  svg.append('g').attr('class', 'axis')
+    .attr('transform', `translate(0,${height})`)
+    .call(d3.axisBottom(x).tickValues(
+      data.length > 20 ? x.domain().filter((d, i) => i % Math.ceil(data.length / 10) === 0) : x.domain()
+    ).tickFormat(i => data[i] ? data[i].session_id.slice(0, 8) : ''))
+    .selectAll('text').attr('transform', 'rotate(-35)').style('text-anchor', 'end');
+
+  svg.append('g').attr('class', 'axis').call(d3.axisLeft(y).ticks(5));
+
+  // Legend
+  const lg = container.append('div').attr('class', 'legend');
+  [['Messages', '#3b82f6'], ['Tool Calls', '#f59e0b']].forEach(([label, color]) => {
+    const item = lg.append('div').attr('class', 'legend-item');
+    item.append('div').attr('class', 'legend-swatch').style('background', color);
+    item.append('span').text(label);
+  });
+}
+
+// ── Content length scatter ──
+async function updateLengths() {
+  const data = await fetch(`${API}/api/content_lengths`).then(r => r.json());
+  const container = d3.select('#chart-lengths');
+  container.selectAll('*').remove();
+
+  const margin = { top: 10, right: 30, bottom: 35, left: 60 };
+  const width = container.node().clientWidth - margin.left - margin.right;
+  const height = 220;
+
+  const svg = container.append('svg')
+    .attr('width', width + margin.left + margin.right)
+    .attr('height', height + margin.top + margin.bottom)
+    .append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  const x = d3.scaleLinear().domain([0, data.length]).range([0, width]);
+  const maxLen = d3.max(data, d => d.length) || 1;
+  const y = d3.scaleLinear().domain([0, maxLen]).nice().range([height, 0]);
+
+  svg.append('g').attr('class', 'grid')
+    .call(d3.axisLeft(y).tickSize(-width).tickFormat(''))
+    .select('.domain').remove();
+
+  svg.selectAll('circle')
+    .data(data)
+    .join('circle')
+    .attr('cx', (d, i) => x(i))
+    .attr('cy', d => y(d.length))
+    .attr('r', 4)
+    .attr('fill', d => ROLE_COLORS[d.role] || '#64748b')
+    .attr('opacity', 0.7)
+    .on('mouseover', function(event, d) {
+      tooltip.style('opacity', 1)
+        .html(`<strong>${d.role}</strong><br>Length: ${d.length.toLocaleString()} chars`)
+        .style('left', (event.pageX + 12) + 'px')
+        .style('top', (event.pageY - 20) + 'px');
+      d3.select(this).attr('r', 7).attr('opacity', 1);
+    })
+    .on('mouseout', function() {
+      tooltip.style('opacity', 0);
+      d3.select(this).attr('r', 4).attr('opacity', 0.7);
+    });
+
+  svg.append('g').attr('class', 'axis').attr('transform', `translate(0,${height})`).call(d3.axisBottom(x).ticks(8));
+  svg.append('g').attr('class', 'axis').call(d3.axisLeft(y).ticks(5));
+
+  svg.append('text').attr('x', width / 2).attr('y', height + 30)
+    .attr('text-anchor', 'middle').attr('fill', '#64748b').attr('font-size', '11px')
+    .text('Message index');
+  svg.append('text').attr('transform', 'rotate(-90)').attr('x', -height / 2).attr('y', -45)
+    .attr('text-anchor', 'middle').attr('fill', '#64748b').attr('font-size', '11px')
+    .text('Content length (chars)');
+
+  const lg = container.append('div').attr('class', 'legend');
+  Object.entries(ROLE_COLORS).forEach(([role, color]) => {
+    const item = lg.append('div').attr('class', 'legend-item');
+    item.append('div').attr('class', 'legend-swatch').style('background', color);
+    item.append('span').text(role);
+  });
+}
+
+// ── Token estimation ──
+async function updateTokens() {
+  const data = await fetch(`${API}/api/tokens`).then(r => r.json());
+
+  // Update KPI cards
+  animateValue('kpi-input-tokens', data.estimated_input);
+  animateValue('kpi-output-tokens', data.estimated_output);
+  animateValue('kpi-total-tokens', data.grand_total);
+
+  if (prevTokens) {
+    const di = data.estimated_input - prevTokens.estimated_input;
+    const do_ = data.estimated_output - prevTokens.estimated_output;
+    const dt = data.grand_total - prevTokens.grand_total;
+    if (di > 0) document.getElementById('kpi-input-tokens-delta').textContent = `+${di.toLocaleString()} new`;
+    if (do_ > 0) document.getElementById('kpi-output-tokens-delta').textContent = `+${do_.toLocaleString()} new`;
+    if (dt > 0) document.getElementById('kpi-total-tokens-delta').textContent = `+${dt.toLocaleString()} new`;
+  }
+  prevTokens = data;
+
+  // Token by role donut
+  updateTokenRolesChart(data.by_role);
+  // Tokens per session stacked bar
+  updateTokenSessionsChart(data.by_session);
+}
+
+function updateTokenRolesChart(data) {
+  const container = d3.select('#chart-token-roles');
+  container.selectAll('*').remove();
+
+  if (!data.length) {
+    container.append('div').style('color', '#64748b').style('text-align', 'center')
+      .style('padding-top', '80px').text('No token data yet');
+    return;
+  }
+
+  const width = container.node().clientWidth;
+  const size = Math.min(width, 240);
+  const radius = size / 2;
+
+  const svg = container.append('svg')
+    .attr('width', width).attr('height', size)
+    .append('g')
+    .attr('transform', `translate(${width/2},${radius})`);
+
+  const pie = d3.pie().value(d => d.tokens).sort(null).padAngle(0.03);
+  const arc = d3.arc().innerRadius(radius * 0.55).outerRadius(radius * 0.88);
+  const total = d3.sum(data, d => d.tokens);
+
+  svg.selectAll('path')
+    .data(pie(data))
+    .join('path')
+    .attr('d', arc)
+    .attr('fill', (d, i) => ROLE_COLORS[d.data.role] || CHART_COLORS[i])
+    .attr('stroke', '#0a0e17').attr('stroke-width', 2)
+    .style('cursor', 'pointer')
+    .on('mouseover', function(event, d) {
+      tooltip.style('opacity', 1)
+        .html(`<strong>${d.data.role}</strong><br>${d.data.tokens.toLocaleString()} tokens (${Math.round(d.data.tokens/total*100)}%)`)
+        .style('left', (event.pageX + 12) + 'px')
+        .style('top', (event.pageY - 20) + 'px');
+      d3.select(this).attr('opacity', 0.8);
+    })
+    .on('mouseout', function() {
+      tooltip.style('opacity', 0);
+      d3.select(this).attr('opacity', 1);
+    });
+
+  // Center text
+  svg.append('text').attr('text-anchor', 'middle').attr('dy', '-0.1em')
+    .attr('fill', '#e2e8f0').attr('font-size', '1.3rem').attr('font-weight', '800')
+    .text(total.toLocaleString());
+  svg.append('text').attr('text-anchor', 'middle').attr('dy', '1.3em')
+    .attr('fill', '#64748b').attr('font-size', '0.7rem').attr('font-weight', '600')
+    .text('TOKENS');
+
+  // Legend
+  const legend = container.append('div').attr('class', 'legend');
+  data.forEach((d, i) => {
+    const item = legend.append('div').attr('class', 'legend-item');
+    item.append('div').attr('class', 'legend-swatch')
+      .style('background', ROLE_COLORS[d.role] || CHART_COLORS[i]);
+    item.append('span').text(`${d.role} (${d.tokens.toLocaleString()})`);
+  });
+}
+
+function updateTokenSessionsChart(data) {
+  const container = d3.select('#chart-token-sessions');
+  container.selectAll('*').remove();
+
+  if (!data.length) {
+    container.append('div').style('color', '#64748b').style('text-align', 'center')
+      .style('padding-top', '80px').text('No token data yet');
+    return;
+  }
+
+  const margin = { top: 10, right: 30, bottom: 40, left: 60 };
+  const width = container.node().clientWidth - margin.left - margin.right;
+  const height = 240;
+
+  const svg = container.append('svg')
+    .attr('width', width + margin.left + margin.right)
+    .attr('height', height + margin.top + margin.bottom)
+    .append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  const x = d3.scaleBand().domain(data.map((d, i) => i)).range([0, width]).padding(0.25);
+  const maxVal = d3.max(data, d => d.total) || 1;
+  const y = d3.scaleLinear().domain([0, maxVal]).nice().range([height, 0]);
+
+  // Grid
+  svg.append('g').attr('class', 'grid')
+    .call(d3.axisLeft(y).tickSize(-width).tickFormat(''))
+    .select('.domain').remove();
+
+  // Input tokens (bottom, blue)
+  svg.selectAll('.bar-input')
+    .data(data)
+    .join('rect')
+    .attr('class', 'bar')
+    .attr('x', (d, i) => x(i))
+    .attr('y', d => y(d.input + d.output))
+    .attr('width', x.bandwidth())
+    .attr('height', d => height - y(d.input))
+    .attr('fill', '#3b82f6')
+    .attr('rx', 3)
+    .on('mouseover', function(event, d) {
+      tooltip.style('opacity', 1)
+        .html(`<strong>${d.session_id}...</strong><br>Input: ${d.input.toLocaleString()}<br>Output: ${d.output.toLocaleString()}<br>Total: ${d.total.toLocaleString()} tokens`)
+        .style('left', (event.pageX + 12) + 'px')
+        .style('top', (event.pageY - 20) + 'px');
+    })
+    .on('mouseout', () => tooltip.style('opacity', 0));
+
+  // Output tokens (top, purple)
+  svg.selectAll('.bar-output')
+    .data(data)
+    .join('rect')
+    .attr('class', 'bar')
+    .attr('x', (d, i) => x(i))
+    .attr('y', d => y(d.output))
+    .attr('width', x.bandwidth())
+    .attr('height', d => height - y(d.output))
+    .attr('fill', '#8b5cf6')
+    .attr('rx', 3)
+    .style('pointer-events', 'none');
+
+  svg.append('g').attr('class', 'axis')
+    .attr('transform', `translate(0,${height})`)
+    .call(d3.axisBottom(x).tickValues(
+      data.length > 20 ? x.domain().filter((d, i) => i % Math.ceil(data.length / 10) === 0) : x.domain()
+    ).tickFormat(i => data[i] ? data[i].session_id.slice(0, 8) : ''))
+    .selectAll('text').attr('transform', 'rotate(-35)').style('text-anchor', 'end');
+
+  svg.append('g').attr('class', 'axis').call(d3.axisLeft(y).ticks(5).tickFormat(d3.format('.2s')));
+
+  // Legend
+  const lg = container.append('div').attr('class', 'legend');
+  [['Input (user)', '#3b82f6'], ['Output (assistant)', '#8b5cf6']].forEach(([label, color]) => {
+    const item = lg.append('div').attr('class', 'legend-item');
+    item.append('div').attr('class', 'legend-swatch').style('background', color);
+    item.append('span').text(label);
+  });
+}
+
+// ── Sessions table ──
+async function updateSessions() {
+  const data = await fetch(`${API}/api/sessions`).then(r => r.json());
+  const tbody = document.getElementById('session-tbody');
+  tbody.innerHTML = '';
+  data.slice(0, 20).forEach(s => {
+    const status = s.ended_at ? '&#10003;' : '&#9679;';
+    const statusColor = s.ended_at ? '#10b981' : '#f59e0b';
+    tbody.innerHTML += `<tr>
+      <td class="sid">${s.id.slice(0, 16)}...</td>
+      <td>${s.model || '—'}</td>
+      <td>${s.message_count}</td>
+      <td>${s.tool_call_count}</td>
+      <td style="color:${statusColor}">${status}</td>
+    </tr>`;
+  });
+}
+
+// ── Live message feed ──
+async function updateFeed() {
+  const data = await fetch(`${API}/api/messages?limit=30`).then(r => r.json());
+  const feed = document.getElementById('message-feed');
+  const newCount = data.length;
+
+  feed.innerHTML = '';
+  data.reverse().forEach((m, i) => {
+    const role = m.role || 'unknown';
+    const content = m.has_tool_calls ? `[Tool call${m.tool_name ? ': ' + m.tool_name : ''}]` :
+                    (m.content ? m.content.slice(0, 200) : '—');
+    const isNew = i >= data.length - (newCount - prevMessageCount) && prevMessageCount > 0;
+    feed.innerHTML += `<div class="feed-item ${role} ${isNew ? 'new-item' : ''}">
+      <div class="feed-role">${role}</div>
+      <div class="feed-content">${escapeHtml(content)}</div>
+    </div>`;
+  });
+
+  prevMessageCount = newCount;
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ── Refresh loop ──
+async function refresh() {
+  try {
+    await Promise.all([
+      updateKPIs(),
+      updateTokens(),
+      updateRoles(),
+      updateTools(),
+      updateTimeline(),
+      updateLengths(),
+      updateSessions(),
+      updateFeed(),
+    ]);
+    document.getElementById('refresh-info').textContent =
+      `Last updated: ${new Date().toLocaleTimeString()} · Every ${REFRESH_MS/1000}s`;
+  } catch (e) {
+    document.getElementById('refresh-info').textContent = `Error: ${e.message}`;
+    document.getElementById('refresh-info').style.color = '#f87171';
+  }
+}
+
+// Initial + interval
+refresh();
+setInterval(refresh, REFRESH_MS);
+
+// Resize handler
+window.addEventListener('resize', () => {
+  updateRoles(); updateTools(); updateTimeline(); updateLengths(); updateTokens();
+});
+</script>
+</body>
+</html>
