@@ -368,6 +368,7 @@ async def test_web_extract_short_circuits_blocked_url(monkeypatch):
         "_get_firecrawl_client",
         lambda: pytest.fail("firecrawl should not run for blocked URL"),
     )
+    monkeypatch.setattr(web_tools, "_get_backend", lambda: "firecrawl")
     monkeypatch.setattr("tools.interrupt.is_interrupted", lambda: False)
 
     result = json.loads(await web_tools.web_extract_tool(["https://blocked.test"], use_llm_processing=False))
@@ -426,6 +427,7 @@ async def test_web_extract_blocks_redirected_final_url(monkeypatch):
 
     monkeypatch.setattr(web_tools, "check_website_access", fake_check)
     monkeypatch.setattr(web_tools, "_get_firecrawl_client", lambda: FakeFirecrawlClient())
+    monkeypatch.setattr(web_tools, "_get_backend", lambda: "firecrawl")
     monkeypatch.setattr("tools.interrupt.is_interrupted", lambda: False)
 
     result = json.loads(await web_tools.web_extract_tool(["https://allowed.test"], use_llm_processing=False))

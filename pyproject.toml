@@ -25,6 +25,8 @@ dependencies = [
   "pydantic>=2.12.5,<3",
   # Interactive CLI (prompt_toolkit is used directly by cli.py)
   "prompt_toolkit>=3.0.52,<4",
+  # Token counting (used by dashboard_server.py)
+  "tiktoken>=0.7.0,<1",
   # Tools
   "exa-py>=2.9.0,<3",
   "firecrawl-py>=4.16.0,<5",
@@ -74,6 +76,7 @@ rl = [
 ]
 yc-bench = ["yc-bench @ git+https://github.com/collinear-ai/yc-bench.git ; python_version >= '3.12'"]
 all = [
+  "hermes-agent[oracle]",
   "hermes-agent[modal]",
   "hermes-agent[daytona]",
   "hermes-agent[messaging]",
@@ -95,6 +98,7 @@ all = [
 ]
 
 [project.scripts]
+orahermes = "hermes_cli.main:main"
 hermes = "hermes_cli.main:main"
 hermes-agent = "run_agent:main"
 hermes-acp = "acp_adapter.entry:main"

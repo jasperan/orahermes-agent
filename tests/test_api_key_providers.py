@@ -265,6 +265,13 @@ class TestResolveProvider:
         assert resolve_provider("auto") == "openrouter"
 
     def test_auto_does_not_select_copilot_from_github_token(self, monkeypatch):
+        # Clear all registered provider env vars so real keys don't leak in
+        for pconfig in PROVIDER_REGISTRY.values():
+            if pconfig.auth_type == "api_key":
+                for env_var in pconfig.api_key_env_vars:
+                    monkeypatch.delenv(env_var, raising=False)
+        for var in ("OPENROUTER_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL"):
+            monkeypatch.delenv(var, raising=False)
         monkeypatch.setenv("GITHUB_TOKEN", "gh-test-token")
         with pytest.raises(AuthError, match="No inference provider configured"):
             resolve_provider("auto")
@@ -629,10 +636,20 @@ class TestHasAnyProviderConfigured:
         hermes_home.mkdir()
         monkeypatch.setattr(config_module, "get_env_path", lambda: hermes_home / ".env")
         monkeypatch.setattr(config_module, "get_hermes_home", lambda: hermes_home)
-        # Clear all provider env vars so earlier checks don't short-circuit
+        # Clear all registered provider env vars so real keys don't leak in
+        from hermes_cli.auth import PROVIDER_REGISTRY as _PR
+        for pconfig in _PR.values():
+            if pconfig.auth_type == "api_key":
+                for env_var in pconfig.api_key_env_vars:
+                    monkeypatch.delenv(env_var, raising=False)
         for var in ("OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
                      "ANTHROPIC_TOKEN", "OPENAI_BASE_URL"):
             monkeypatch.delenv(var, raising=False)
+        # Stub out get_auth_status so real gh-cli / copilot auth doesn't leak in
+        monkeypatch.setattr(
+            "hermes_cli.auth.get_auth_status",
+            lambda provider_id: {"logged_in": False},
+        )
         # Simulate valid Claude Code credentials
         monkeypatch.setattr(
             "agent.anthropic_adapter.read_claude_code_credentials",
