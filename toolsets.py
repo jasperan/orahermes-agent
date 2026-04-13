@@ -1,27 +1,5 @@
 #!/usr/bin/env python3
-"""
-Toolsets Module
-
-This module provides a flexible system for defining and managing tool aliases/toolsets.
-Toolsets allow you to group tools together for specific scenarios and can be composed
-from individual tools or other toolsets.
-
-Features:
-- Define custom toolsets with specific tools
-- Compose toolsets from other toolsets
-- Built-in common toolsets for typical use cases
-- Easy extension for new toolsets
-- Support for dynamic toolset resolution
-
-Usage:
-    from toolsets import get_toolset, resolve_toolset, get_all_toolsets
-
-    # Get tools for a specific toolset
-    tools = get_toolset("research")
-
-    # Resolve a toolset to get all tool names (including from composed toolsets)
-    all_tools = resolve_toolset("full_stack")
-"""
+"""Tool grouping and resolution: named toolsets composed from individual tools or other toolsets."""
 
 from typing import List, Dict, Any, Set, Optional
 

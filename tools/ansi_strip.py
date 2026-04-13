@@ -1,15 +1,4 @@
-"""Strip ANSI escape sequences from subprocess output.
-
-Used by terminal_tool, code_execution_tool, and process_registry to clean
-command output before returning it to the model.  This prevents ANSI codes
-from entering the model's context — which is the root cause of models
-copying escape sequences into file writes.
-
-Covers the full ECMA-48 spec: CSI (including private-mode ``?`` prefix,
-colon-separated params, intermediate bytes), OSC (BEL and ST terminators),
-DCS/SOS/PM/APC string sequences, nF multi-byte escapes, Fp/Fe/Fs
-single-byte escapes, and 8-bit C1 control characters.
-"""
+"""Strip ANSI escape sequences (full ECMA-48) from subprocess output."""
 
 import re
 

@@ -50,7 +50,8 @@ class HermesTokenStorage:
         self._server_name = _sanitize_server_name(server_name)
 
     def _base_dir(self) -> Path:
-        home = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+        from hermes_constants import get_hermes_home
+        home = get_hermes_home()
         d = home / _TOKEN_DIR_NAME
         d.mkdir(parents=True, exist_ok=True)
         return d

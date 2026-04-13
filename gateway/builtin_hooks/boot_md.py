@@ -22,9 +22,11 @@ import os
 import threading
 from pathlib import Path
 
+from hermes_constants import get_hermes_home
+
 logger = logging.getLogger("hooks.boot-md")
 
-HERMES_HOME = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+HERMES_HOME = get_hermes_home()
 BOOT_FILE = HERMES_HOME / "BOOT.md"
 
 

@@ -33,6 +33,8 @@ import os
 from pathlib import Path
 from typing import Dict, List
 
+from hermes_constants import get_hermes_home
+
 logger = logging.getLogger(__name__)
 
 # Session-scoped list of credential files to mount.
@@ -44,7 +46,7 @@ _config_files: List[Dict[str, str]] | None = None
 
 
 def _resolve_hermes_home() -> Path:
-    return Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+    return get_hermes_home()
 
 
 def register_credential_file(

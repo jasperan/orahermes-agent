@@ -1,24 +1,5 @@
 #!/usr/bin/env python3
-"""
-AI Agent Runner with Tool Calling
-
-This module provides a clean, standalone agent that can execute AI models
-with tool calling capabilities. It handles the conversation loop, tool execution,
-and response management.
-
-Features:
-- Automatic tool calling loop until completion
-- Configurable model parameters
-- Error handling and recovery
-- Message history management
-- Support for multiple model providers
-
-Usage:
-    from run_agent import AIAgent
-
-    agent = AIAgent(base_url="http://localhost:30000/v1", model="claude-opus-4-20250514")
-    response = agent.run_conversation("Tell me about the latest Python updates")
-"""
+"""AIAgent: tool-calling conversation loop with configurable model providers."""
 
 import atexit
 import asyncio

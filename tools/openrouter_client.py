@@ -1,10 +1,4 @@
-"""Shared OpenRouter API client for Hermes tools.
-
-Provides a single lazy-initialized AsyncOpenAI client that all tool modules
-can share.  Routes through the centralized provider router in
-agent/auxiliary_client.py so auth, headers, and API format are handled
-consistently.
-"""
+"""Shared lazy-initialized AsyncOpenAI client for OpenRouter, routed through auxiliary_client."""
 
 import os
 

@@ -1,14 +1,4 @@
-"""Shared interrupt signaling for all tools.
-
-Provides a global threading.Event that any tool can check to determine
-if the user has requested an interrupt. The agent's interrupt() method
-sets this event, and tools poll it during long-running operations.
-
-Usage in tools:
-    from tools.interrupt import is_interrupted
-    if is_interrupted():
-        return {"output": "[interrupted]", "returncode": 130}
-"""
+"""Global threading.Event for user interrupt signaling across all tools."""
 
 import threading
 
