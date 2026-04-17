@@ -58,3 +58,19 @@ mini-swe-agent/
 # Nix
 .direnv/
 result
+
+# Agent/skill local directories (never commit)
+.agents/
+.claude/
+.crush/
+.openhands/
+.serena/
+
+# Claude-generated output
+dogfood-output/
+docs/plans/
+task_plan.md
+findings.md
+progress.md
+.playwright-mcp/
+content/

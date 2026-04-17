@@ -77,7 +77,7 @@ A fork of [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-age
 ## Quick Start
 
 <!-- one-command-install -->
-> **One-command install** — clone, configure, and run in a single step:
+> **One-command install**: clone, configure, and run in a single step:
 >
 > ```bash
 > curl -fsSL https://raw.githubusercontent.com/jasperan/orahermes-agent/main/install.sh | bash
