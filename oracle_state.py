@@ -1,10 +1,8 @@
-# oracle_state.py
 """Oracle 26ai Free session state storage — replaces SQLite hermes_state.py."""
 
 import logging
 import os
 import time
-import uuid
 import json
 from typing import Any, Dict, List, Optional
 
@@ -12,7 +10,6 @@ import oracledb
 
 logger = logging.getLogger(__name__)
 
-# Auto-convert LOB objects to Python strings/bytes
 oracledb.defaults.fetch_lobs = False
 
 
@@ -25,11 +22,11 @@ class OracleSessionDB:
 
     def __init__(
         self,
-        dsn: str = None,
-        user: str = None,
-        password: str = None,
-        **kwargs,
-    ):
+        dsn: Optional[str] = None,
+        user: Optional[str] = None,
+        password: Optional[str] = None,
+        **kwargs: Any,
+    ) -> None:
         self.dsn = dsn or os.getenv("ORACLE_DSN", "localhost:1521/FREEPDB1")
         self.user = user or os.getenv("ORACLE_USER", "hermes")
         self.password = password or os.getenv("ORACLE_PASSWORD", "")
@@ -53,11 +50,11 @@ class OracleSessionDB:
         self,
         session_id: str,
         source: str,
-        model: str = None,
-        model_config: Dict[str, Any] = None,
-        system_prompt: str = None,
-        user_id: str = None,
-        parent_session_id: str = None,
+        model: Optional[str] = None,
+        model_config: Optional[Dict[str, Any]] = None,
+        system_prompt: Optional[str] = None,
+        user_id: Optional[str] = None,
+        parent_session_id: Optional[str] = None,
     ) -> str:
         """Create a new session record. Returns the session_id."""
         with self._get_conn() as conn:
@@ -76,7 +73,7 @@ class OracleSessionDB:
             conn.commit()
         return session_id
 
-    def end_session(self, session_id: str, end_reason: str = "normal"):
+    def end_session(self, session_id: str, end_reason: str = "normal") -> None:
         """Mark a session as ended."""
         with self._get_conn() as conn:
             with conn.cursor() as cur:
@@ -119,12 +116,12 @@ class OracleSessionDB:
         self,
         session_id: str,
         role: str,
-        content: str = None,
-        tool_name: str = None,
+        content: Optional[str] = None,
+        tool_name: Optional[str] = None,
         tool_calls: Any = None,
-        tool_call_id: str = None,
-        token_count: int = None,
-        finish_reason: str = None,
+        tool_call_id: Optional[str] = None,
+        token_count: Optional[int] = None,
+        finish_reason: Optional[str] = None,
     ) -> int:
         """Append a message to a session. Returns the message row ID."""
         with self._get_conn() as conn:
@@ -162,10 +159,7 @@ class OracleSessionDB:
             conn.commit()
         return msg_id
 
-    # Keep add_message as alias for backward compat with tests
-    add_message = append_message
-
-    def get_messages(self, session_id: str) -> list:
+    def get_messages(self, session_id: str) -> List[Dict[str, Any]]:
         with self._get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -212,11 +206,11 @@ class OracleSessionDB:
     def search_messages(
         self,
         query: str,
-        source_filter: list = None,
-        role_filter: list = None,
+        source_filter: Optional[List[str]] = None,
+        role_filter: Optional[List[str]] = None,
         limit: int = 20,
         offset: int = 0,
-    ) -> list:
+    ) -> List[Dict[str, Any]]:
         """Full-text search using Oracle Text CONTAINS with LIKE fallback.
 
         Accepts the same kwargs as SQLite SessionDB.search_messages so tools
@@ -238,7 +232,7 @@ class OracleSessionDB:
                 # Build dynamic WHERE filters
                 extra_where = ""
                 params_extra = []
-                param_idx = 3  # :1=query, :2=limit already used
+                param_idx = 3
 
                 if source_filter:
                     placeholders = ",".join(f":{param_idx + i}" for i in range(len(source_filter)))
@@ -295,7 +289,7 @@ class OracleSessionDB:
                     for r in results
                 ]
 
-    def list_sessions(self, source: str = None, limit: int = 50) -> list:
+    def list_sessions(self, source: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
         with self._get_conn() as conn:
             with conn.cursor() as cur:
                 if source:
@@ -324,9 +318,8 @@ class OracleSessionDB:
     # Oracle AI Vector Search — semantic memory
     # =========================================================================
 
-    # Default ONNX embedding model name loaded in Oracle DB
     EMBEDDING_MODEL = "ALL_MINILM_L6_V2"
-    # MiniLM-L6-v2 has a 512-token limit; truncate input to ~500 chars as safety
+    # MiniLM-L6-v2 has a 512-token cap; ~1500 chars leaves headroom for UTF-8 tokens.
     _EMBED_CHAR_LIMIT = 1500
 
     def _check_vector_support(self) -> bool:
@@ -334,14 +327,12 @@ class OracleSessionDB:
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
-                    # Check if the embedding column exists on the messages table
                     cur.execute(
                         """SELECT COUNT(*) FROM user_tab_columns
                            WHERE table_name = 'MESSAGES' AND column_name = 'EMBEDDING'"""
                     )
                     if cur.fetchone()[0] == 0:
                         return False
-                    # Check if the ONNX model is available
                     cur.execute(
                         """SELECT COUNT(*) FROM all_mining_models
                            WHERE model_name = :1""",
@@ -529,6 +520,6 @@ class OracleSessionDB:
             logger.warning("backfill_embeddings failed: %s", e)
         return count
 
-    def close(self):
+    def close(self) -> None:
         if self.pool:
             self.pool.close()

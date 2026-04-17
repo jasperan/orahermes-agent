@@ -1,6 +1,4 @@
-# tests/test_oci_client.py
 import os
-import pytest
 
 
 def test_create_oci_client_returns_openai_compatible():

@@ -12,9 +12,10 @@ Usage:
 import json
 import os
 import time
+from contextlib import contextmanager
 from http.server import HTTPServer, SimpleHTTPRequestHandler
+from typing import Any, Dict, Iterator, List, Optional
 from urllib.parse import urlparse, parse_qs
-import threading
 
 import oracledb
 import tiktoken
@@ -29,24 +30,32 @@ USER = os.getenv("ORACLE_USER", "hermes")
 PASSWORD = os.getenv("ORACLE_PASSWORD", "")
 
 
-def get_conn():
+def get_conn() -> oracledb.Connection:
     return oracledb.connect(user=USER, password=PASSWORD, dsn=DSN)
 
 
-def query_overview():
+@contextmanager
+def cursor() -> Iterator[Any]:
+    """Yield a cursor on a fresh connection, always closing on exit."""
     conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM sessions")
-    total_sessions = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*) FROM messages")
-    total_messages = cur.fetchone()[0]
-    cur.execute("SELECT SUM(input_tokens), SUM(output_tokens) FROM sessions")
-    row = cur.fetchone()
-    total_input = row[0] or 0
-    total_output = row[1] or 0
-    cur.execute("SELECT COUNT(*) FROM messages WHERE tool_calls IS NOT NULL OR tool_name IS NOT NULL")
-    tool_msgs = cur.fetchone()[0]
-    conn.close()
+    try:
+        yield conn.cursor()
+    finally:
+        conn.close()
+
+
+def query_overview() -> Dict[str, Any]:
+    with cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM sessions")
+        total_sessions = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM messages")
+        total_messages = cur.fetchone()[0]
+        cur.execute("SELECT SUM(input_tokens), SUM(output_tokens) FROM sessions")
+        row = cur.fetchone()
+        total_input = row[0] or 0
+        total_output = row[1] or 0
+        cur.execute("SELECT COUNT(*) FROM messages WHERE tool_calls IS NOT NULL OR tool_name IS NOT NULL")
+        tool_msgs = cur.fetchone()[0]
     return {
         "total_sessions": total_sessions,
         "total_messages": total_messages,
@@ -57,16 +66,14 @@ def query_overview():
     }
 
 
-def query_sessions():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, source, model, message_count, tool_call_count,
-               input_tokens, output_tokens, started_at, ended_at, end_reason
-        FROM sessions ORDER BY started_at DESC FETCH FIRST 50 ROWS ONLY
-    """)
-    rows = cur.fetchall()
-    conn.close()
+def query_sessions() -> List[Dict[str, Any]]:
+    with cursor() as cur:
+        cur.execute("""
+            SELECT id, source, model, message_count, tool_call_count,
+                   input_tokens, output_tokens, started_at, ended_at, end_reason
+            FROM sessions ORDER BY started_at DESC FETCH FIRST 50 ROWS ONLY
+        """)
+        rows = cur.fetchall()
     return [
         {
             "id": r[0], "source": r[1], "model": r[2],
@@ -78,25 +85,23 @@ def query_sessions():
     ]
 
 
-def query_messages(session_id=None, limit=100):
-    conn = get_conn()
-    cur = conn.cursor()
-    if session_id:
-        cur.execute("""
-            SELECT m.id, m.session_id, m.role, m.content, m.tool_name,
-                   m.tool_calls, m.timestamp_val, m.token_count, m.finish_reason
-            FROM messages m WHERE m.session_id = :1
-            ORDER BY m.id FETCH FIRST :2 ROWS ONLY
-        """, [session_id, limit])
-    else:
-        cur.execute("""
-            SELECT m.id, m.session_id, m.role, m.content, m.tool_name,
-                   m.tool_calls, m.timestamp_val, m.token_count, m.finish_reason
-            FROM messages m
-            ORDER BY m.id DESC FETCH FIRST :1 ROWS ONLY
-        """, [limit])
-    rows = cur.fetchall()
-    conn.close()
+def query_messages(session_id: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+    with cursor() as cur:
+        if session_id:
+            cur.execute("""
+                SELECT m.id, m.session_id, m.role, m.content, m.tool_name,
+                       m.tool_calls, m.timestamp_val, m.token_count, m.finish_reason
+                FROM messages m WHERE m.session_id = :1
+                ORDER BY m.id FETCH FIRST :2 ROWS ONLY
+            """, [session_id, limit])
+        else:
+            cur.execute("""
+                SELECT m.id, m.session_id, m.role, m.content, m.tool_name,
+                       m.tool_calls, m.timestamp_val, m.token_count, m.finish_reason
+                FROM messages m
+                ORDER BY m.id DESC FETCH FIRST :1 ROWS ONLY
+            """, [limit])
+        rows = cur.fetchall()
     return [
         {
             "id": r[0], "session_id": r[1], "role": r[2],
@@ -109,25 +114,21 @@ def query_messages(session_id=None, limit=100):
     ]
 
 
-def query_role_distribution():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT role, COUNT(*) FROM messages GROUP BY role ORDER BY COUNT(*) DESC")
-    rows = cur.fetchall()
-    conn.close()
+def query_role_distribution() -> List[Dict[str, Any]]:
+    with cursor() as cur:
+        cur.execute("SELECT role, COUNT(*) FROM messages GROUP BY role ORDER BY COUNT(*) DESC")
+        rows = cur.fetchall()
     return [{"role": r[0], "count": r[1]} for r in rows]
 
 
-def query_timeline():
+def query_timeline() -> List[Dict[str, Any]]:
     """Message count per session in chronological order."""
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT s.id, s.started_at, s.message_count, s.tool_call_count, s.model
-        FROM sessions s ORDER BY s.started_at ASC
-    """)
-    rows = cur.fetchall()
-    conn.close()
+    with cursor() as cur:
+        cur.execute("""
+            SELECT s.id, s.started_at, s.message_count, s.tool_call_count, s.model
+            FROM sessions s ORDER BY s.started_at ASC
+        """)
+        rows = cur.fetchall()
     return [
         {
             "session_id": r[0][:16], "started_at": r[1],
@@ -137,56 +138,50 @@ def query_timeline():
     ]
 
 
-def query_tool_usage():
+def query_tool_usage() -> List[Dict[str, Any]]:
     """Extract tool names from tool_calls JSON and count usage."""
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT tool_calls FROM messages WHERE tool_calls IS NOT NULL
-    """)
-    tool_counts = {}
-    for (tc_raw,) in cur.fetchall():
-        try:
-            calls = json.loads(tc_raw) if isinstance(tc_raw, str) else tc_raw
-            if isinstance(calls, list):
-                for call in calls:
-                    name = call.get("function", {}).get("name") or call.get("name", "unknown")
-                    tool_counts[name] = tool_counts.get(name, 0) + 1
-        except (json.JSONDecodeError, TypeError):
-            pass
-    conn.close()
+    tool_counts: Dict[str, int] = {}
+    with cursor() as cur:
+        cur.execute("""
+            SELECT tool_calls FROM messages WHERE tool_calls IS NOT NULL
+        """)
+        for (tc_raw,) in cur.fetchall():
+            try:
+                calls = json.loads(tc_raw) if isinstance(tc_raw, str) else tc_raw
+                if isinstance(calls, list):
+                    for call in calls:
+                        name = call.get("function", {}).get("name") or call.get("name", "unknown")
+                        tool_counts[name] = tool_counts.get(name, 0) + 1
+            except (json.JSONDecodeError, TypeError):
+                pass
     return [{"tool": k, "count": v} for k, v in sorted(tool_counts.items(), key=lambda x: -x[1])]
 
 
-def query_content_lengths():
+def query_content_lengths() -> List[Dict[str, Any]]:
     """Message content length distribution by role."""
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT role, LENGTH(content) as len FROM messages
-        WHERE content IS NOT NULL ORDER BY id
-    """)
-    rows = cur.fetchall()
-    conn.close()
+    with cursor() as cur:
+        cur.execute("""
+            SELECT role, LENGTH(content) as len FROM messages
+            WHERE content IS NOT NULL ORDER BY id
+        """)
+        rows = cur.fetchall()
     return [{"role": r[0], "length": r[1]} for r in rows]
 
 
-def query_token_estimates():
+def query_token_estimates() -> Dict[str, Any]:
     """Estimate token counts from message content using tiktoken.
 
     Returns per-role totals, per-session breakdown, and grand totals.
     """
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT m.session_id, m.role, m.content, m.tool_calls
-        FROM messages m ORDER BY m.id
-    """)
-    rows = cur.fetchall()
-    conn.close()
+    with cursor() as cur:
+        cur.execute("""
+            SELECT m.session_id, m.role, m.content, m.tool_calls
+            FROM messages m ORDER BY m.id
+        """)
+        rows = cur.fetchall()
 
-    role_totals = {}
-    session_totals = {}
+    role_totals: Dict[str, int] = {}
+    session_totals: Dict[str, Dict[str, int]] = {}
     grand_total = 0
 
     for session_id, role, content, tool_calls in rows:
@@ -226,7 +221,7 @@ def query_token_estimates():
 DASHBOARD_HTML = None
 
 
-def load_dashboard_html():
+def load_dashboard_html() -> None:
     global DASHBOARD_HTML
     html_path = os.path.join(os.path.dirname(__file__), "dashboard.html")
     with open(html_path, "r") as f:

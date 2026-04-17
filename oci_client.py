@@ -1,4 +1,3 @@
-# oci_client.py
 """OCI GenAI client wrapper using oci-openai."""
 
 import os

@@ -30,9 +30,9 @@ def semantic_recall(
     query: str,
     mode: str = "hybrid",
     limit: int = 10,
-    role_filter: str = None,
-    db=None,
-    current_session_id: str = None,
+    role_filter: Optional[str] = None,
+    db: Optional[Any] = None,
+    current_session_id: Optional[str] = None,
 ) -> str:
     """Search past conversations by meaning using Oracle AI Vector Search.
 
