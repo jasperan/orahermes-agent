@@ -10,11 +10,8 @@ OCI_GENAI_URL_TEMPLATE = (
 )
 
 DEFAULT_REGION = "us-chicago-1"
-DEFAULT_PROFILE = "foosball"
-DEFAULT_COMPARTMENT_ID = os.getenv(
-    "OCI_COMPARTMENT_ID",
-    "ocid1.compartment.oc1..aaaaaaaaksv5b2aasfqfrmco2r2wh33vxldqhbsok67w5ldk6thkx4hn3mxa",
-)
+DEFAULT_PROFILE = os.getenv("OCI_PROFILE", "DEFAULT")
+DEFAULT_COMPARTMENT_ID = os.getenv("OCI_COMPARTMENT_ID", "")
 
 
 def get_oci_base_url(region: str = DEFAULT_REGION) -> str:
@@ -29,6 +26,8 @@ def create_oci_client(
     **kwargs,
 ) -> OciOpenAI:
     """Create a synchronous OCI GenAI client."""
+    if not compartment_id:
+        raise RuntimeError("OCI_COMPARTMENT_ID is required to create an OCI GenAI client.")
     return OciOpenAI(
         base_url=get_oci_base_url(region),
         auth=OciUserPrincipalAuth(profile_name=profile_name),
@@ -44,6 +43,8 @@ def create_oci_async_client(
     **kwargs,
 ) -> AsyncOciOpenAI:
     """Create an asynchronous OCI GenAI client."""
+    if not compartment_id:
+        raise RuntimeError("OCI_COMPARTMENT_ID is required to create an OCI GenAI client.")
     return AsyncOciOpenAI(
         base_url=get_oci_base_url(region),
         auth=OciUserPrincipalAuth(profile_name=profile_name),

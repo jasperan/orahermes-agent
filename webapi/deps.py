@@ -19,7 +19,6 @@ except ImportError:
         return {"provider": config.get("provider", os.getenv("HERMES_PROVIDER", "anthropic"))}
 from hermes_state import SessionDB
 from run_agent import AIAgent
-from tools.memory_tool import MemoryStore
 
 
 WEB_SOURCE = "web"
@@ -28,19 +27,6 @@ WEB_SOURCE = "web"
 @lru_cache(maxsize=1)
 def get_session_db() -> SessionDB:
     return SessionDB()
-
-
-@lru_cache(maxsize=1)
-def get_memory_store() -> MemoryStore:
-    store = MemoryStore()
-    store.load_from_disk()
-    return store
-
-
-def reload_memory_store() -> MemoryStore:
-    store = get_memory_store()
-    store.load_from_disk()
-    return store
 
 
 def get_config() -> dict[str, Any]:

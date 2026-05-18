@@ -1,4 +1,6 @@
+.DS_Store
 /venv/
+/.venv
 /_pycache/
 *.pyc*
 __pycache__/
@@ -39,6 +41,8 @@ privvy*
 images/
 __pycache__/
 hermes_agent.egg-info/
+/build/
+.omx/
 wandb/
 testlogs
 
@@ -51,26 +55,24 @@ ignored/
 .worktrees/
 environments/benchmarks/evals/
 
+# Web UI build output
+hermes_cli/web_dist/
+
+# Web UI assets — synced from @nous-research/ui at build time via
+# `npm run sync-assets` (see web/package.json).
+web/public/fonts/
+web/public/ds-assets/
+
 # Release script temp files
 .release_notes.md
 mini-swe-agent/
 
 # Nix
 .direnv/
+.nix-stamps/
 result
-
-# Agent/skill local directories (never commit)
-.agents/
-.claude/
-.crush/
-.openhands/
-.serena/
-
-# Claude-generated output
-dogfood-output/
-docs/plans/
-task_plan.md
-findings.md
-progress.md
-.playwright-mcp/
-content/
+website/static/api/skills-index.json
+models-dev-upstream/
+hermes_cli/tui_dist/*
+hermes_cli/scripts/
+docs/superpowers/*

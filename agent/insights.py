@@ -1,7 +1,7 @@
 """
 Session Insights Engine for Hermes Agent.
 
-Analyzes historical session data from the SQLite state database to produce
+Analyzes historical session data from the Oracle session database to produce
 comprehensive usage insights — token consumption, cost estimates, tool usage
 patterns, activity trends, model/platform breakdowns, and session metrics.
 
@@ -27,7 +27,6 @@ from agent.usage_pricing import (
     DEFAULT_PRICING,
     estimate_usage_cost,
     format_duration_compact,
-    get_pricing,
     has_known_pricing,
 )
 
@@ -37,15 +36,6 @@ _DEFAULT_PRICING = DEFAULT_PRICING
 def _has_known_pricing(model_name: str, provider: str = None, base_url: str = None) -> bool:
     """Check if a model has known pricing (vs unknown/custom endpoint)."""
     return has_known_pricing(model_name, provider=provider, base_url=base_url)
-
-
-def _get_pricing(model_name: str) -> Dict[str, float]:
-    """Look up pricing for a model. Uses fuzzy matching on model name.
-
-    Returns _DEFAULT_PRICING (zero cost) for unknown/custom models —
-    we can't assume costs for self-hosted endpoints, local inference, etc.
-    """
-    return get_pricing(model_name)
 
 
 def _estimate_cost(
@@ -104,8 +94,7 @@ class InsightsEngine:
     """
     Analyzes session history and produces usage insights.
 
-    Works directly with a SessionDB instance (or raw sqlite3 connection)
-    to query session and message data.
+    Works directly with a SessionDB instance to query session and message data.
     """
 
     def __init__(self, db):
@@ -116,7 +105,17 @@ class InsightsEngine:
             db: A SessionDB instance (from hermes_state.py)
         """
         self.db = db
-        self._conn = db._conn
+        if not hasattr(db, "query_dicts"):
+            raise RuntimeError("InsightsEngine requires Oracle-backed SessionDB query_dicts()")
+
+    def _fetch_all(self, sql: str, params: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
+        return self.db.query_dicts(sql, params or {})
+
+    def _fetch_one(self, sql: str, params: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        if hasattr(self.db, "query_one"):
+            return self.db.query_one(sql, params or {})
+        rows = self._fetch_all(sql, params)
+        return rows[0] if rows else {}
 
     def generate(self, days: int = 30, source: str = None) -> Dict[str, Any]:
         """
@@ -134,6 +133,7 @@ class InsightsEngine:
         # Gather raw data
         sessions = self._get_sessions(cutoff, source)
         tool_usage = self._get_tool_usage(cutoff, source)
+        skill_usage = self._get_skill_usage(cutoff, source)
         message_stats = self._get_message_stats(cutoff, source)
 
         if not sessions:
@@ -145,6 +145,15 @@ class InsightsEngine:
                 "models": [],
                 "platforms": [],
                 "tools": [],
+                "skills": {
+                    "summary": {
+                        "total_skill_loads": 0,
+                        "total_skill_edits": 0,
+                        "total_skill_actions": 0,
+                        "distinct_skills_used": 0,
+                    },
+                    "top_skills": [],
+                },
                 "activity": {},
                 "top_sessions": [],
             }
@@ -154,6 +163,7 @@ class InsightsEngine:
         models = self._compute_model_breakdown(sessions)
         platforms = self._compute_platform_breakdown(sessions)
         tools = self._compute_tool_breakdown(tool_usage)
+        skills = self._compute_skill_breakdown(skill_usage)
         activity = self._compute_activity_patterns(sessions)
         top_sessions = self._compute_top_sessions(sessions)
 
@@ -166,6 +176,7 @@ class InsightsEngine:
             "models": models,
             "platforms": platforms,
             "tools": tools,
+            "skills": skills,
             "activity": activity,
             "top_sessions": top_sessions,
         }
@@ -185,22 +196,23 @@ class InsightsEngine:
     # not at runtime, so no user-controlled value can alter the query structure.
     _GET_SESSIONS_WITH_SOURCE = (
         f"SELECT {_SESSION_COLS} FROM sessions"
-        " WHERE started_at >= ? AND source = ?"
+        " WHERE started_at >= :cutoff AND source = :source"
         " ORDER BY started_at DESC"
     )
     _GET_SESSIONS_ALL = (
         f"SELECT {_SESSION_COLS} FROM sessions"
-        " WHERE started_at >= ?"
+        " WHERE started_at >= :cutoff"
         " ORDER BY started_at DESC"
     )
 
     def _get_sessions(self, cutoff: float, source: str = None) -> List[Dict]:
         """Fetch sessions within the time window."""
         if source:
-            cursor = self._conn.execute(self._GET_SESSIONS_WITH_SOURCE, (cutoff, source))
-        else:
-            cursor = self._conn.execute(self._GET_SESSIONS_ALL, (cutoff,))
-        return [dict(row) for row in cursor.fetchall()]
+            return self._fetch_all(
+                self._GET_SESSIONS_WITH_SOURCE,
+                {"cutoff": cutoff, "source": source},
+            )
+        return self._fetch_all(self._GET_SESSIONS_ALL, {"cutoff": cutoff})
 
     def _get_tool_usage(self, cutoff: float, source: str = None) -> List[Dict]:
         """Get tool call counts from messages.
@@ -214,53 +226,53 @@ class InsightsEngine:
 
         # Source 1: explicit tool_name on tool response messages
         if source:
-            cursor = self._conn.execute(
+            rows = self._fetch_all(
                 """SELECT m.tool_name, COUNT(*) as count
                    FROM messages m
                    JOIN sessions s ON s.id = m.session_id
-                   WHERE s.started_at >= ? AND s.source = ?
+                   WHERE s.started_at >= :cutoff AND s.source = :source
                      AND m.role = 'tool' AND m.tool_name IS NOT NULL
                    GROUP BY m.tool_name
                    ORDER BY count DESC""",
-                (cutoff, source),
+                {"cutoff": cutoff, "source": source},
             )
         else:
-            cursor = self._conn.execute(
+            rows = self._fetch_all(
                 """SELECT m.tool_name, COUNT(*) as count
                    FROM messages m
                    JOIN sessions s ON s.id = m.session_id
-                   WHERE s.started_at >= ?
+                   WHERE s.started_at >= :cutoff
                      AND m.role = 'tool' AND m.tool_name IS NOT NULL
                    GROUP BY m.tool_name
                    ORDER BY count DESC""",
-                (cutoff,),
+                {"cutoff": cutoff},
             )
-        for row in cursor.fetchall():
+        for row in rows:
             tool_counts[row["tool_name"]] += row["count"]
 
         # Source 2: extract from tool_calls JSON on assistant messages
         # (covers CLI sessions where tool_name is NULL on tool responses)
         if source:
-            cursor2 = self._conn.execute(
+            rows2 = self._fetch_all(
                 """SELECT m.tool_calls
                    FROM messages m
                    JOIN sessions s ON s.id = m.session_id
-                   WHERE s.started_at >= ? AND s.source = ?
+                   WHERE s.started_at >= :cutoff AND s.source = :source
                      AND m.role = 'assistant' AND m.tool_calls IS NOT NULL""",
-                (cutoff, source),
+                {"cutoff": cutoff, "source": source},
             )
         else:
-            cursor2 = self._conn.execute(
+            rows2 = self._fetch_all(
                 """SELECT m.tool_calls
                    FROM messages m
                    JOIN sessions s ON s.id = m.session_id
-                   WHERE s.started_at >= ?
+                   WHERE s.started_at >= :cutoff
                      AND m.role = 'assistant' AND m.tool_calls IS NOT NULL""",
-                (cutoff,),
+                {"cutoff": cutoff},
             )
 
         tool_calls_counts = Counter()
-        for row in cursor2.fetchall():
+        for row in rows2:
             try:
                 calls = row["tool_calls"]
                 if isinstance(calls, str):
@@ -294,10 +306,86 @@ class InsightsEngine:
             for name, count in tool_counts.most_common()
         ]
 
+    def _get_skill_usage(self, cutoff: float, source: str = None) -> List[Dict]:
+        """Extract per-skill usage from assistant tool calls."""
+        skill_counts: Dict[str, Dict[str, Any]] = {}
+
+        if source:
+            rows = self._fetch_all(
+                """SELECT m.tool_calls, m.timestamp_val AS timestamp
+                   FROM messages m
+                   JOIN sessions s ON s.id = m.session_id
+                   WHERE s.started_at >= :cutoff AND s.source = :source
+                     AND m.role = 'assistant' AND m.tool_calls IS NOT NULL""",
+                {"cutoff": cutoff, "source": source},
+            )
+        else:
+            rows = self._fetch_all(
+                """SELECT m.tool_calls, m.timestamp_val AS timestamp
+                   FROM messages m
+                   JOIN sessions s ON s.id = m.session_id
+                   WHERE s.started_at >= :cutoff
+                     AND m.role = 'assistant' AND m.tool_calls IS NOT NULL""",
+                {"cutoff": cutoff},
+            )
+
+        for row in rows:
+            try:
+                calls = row["tool_calls"]
+                if isinstance(calls, str):
+                    calls = json.loads(calls)
+                if not isinstance(calls, list):
+                    continue
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+            timestamp = row["timestamp"]
+            for call in calls:
+                if not isinstance(call, dict):
+                    continue
+                func = call.get("function", {})
+                tool_name = func.get("name")
+                if tool_name not in {"skill_view", "skill_manage"}:
+                    continue
+
+                args = func.get("arguments")
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                if not isinstance(args, dict):
+                    continue
+
+                skill_name = args.get("name")
+                if not isinstance(skill_name, str) or not skill_name.strip():
+                    continue
+
+                entry = skill_counts.setdefault(
+                    skill_name,
+                    {
+                        "skill": skill_name,
+                        "view_count": 0,
+                        "manage_count": 0,
+                        "last_used_at": None,
+                    },
+                )
+                if tool_name == "skill_view":
+                    entry["view_count"] += 1
+                else:
+                    entry["manage_count"] += 1
+
+                if timestamp is not None and (
+                    entry["last_used_at"] is None or timestamp > entry["last_used_at"]
+                ):
+                    entry["last_used_at"] = timestamp
+
+        return list(skill_counts.values())
+
     def _get_message_stats(self, cutoff: float, source: str = None) -> Dict:
         """Get aggregate message statistics."""
         if source:
-            cursor = self._conn.execute(
+            row = self._fetch_one(
                 """SELECT
                      COUNT(*) as total_messages,
                      SUM(CASE WHEN m.role = 'user' THEN 1 ELSE 0 END) as user_messages,
@@ -305,11 +393,11 @@ class InsightsEngine:
                      SUM(CASE WHEN m.role = 'tool' THEN 1 ELSE 0 END) as tool_messages
                    FROM messages m
                    JOIN sessions s ON s.id = m.session_id
-                   WHERE s.started_at >= ? AND s.source = ?""",
-                (cutoff, source),
+                   WHERE s.started_at >= :cutoff AND s.source = :source""",
+                {"cutoff": cutoff, "source": source},
             )
         else:
-            cursor = self._conn.execute(
+            row = self._fetch_one(
                 """SELECT
                      COUNT(*) as total_messages,
                      SUM(CASE WHEN m.role = 'user' THEN 1 ELSE 0 END) as user_messages,
@@ -317,11 +405,10 @@ class InsightsEngine:
                      SUM(CASE WHEN m.role = 'tool' THEN 1 ELSE 0 END) as tool_messages
                    FROM messages m
                    JOIN sessions s ON s.id = m.session_id
-                   WHERE s.started_at >= ?""",
-                (cutoff,),
+                   WHERE s.started_at >= :cutoff""",
+                {"cutoff": cutoff},
             )
-        row = cursor.fetchone()
-        return dict(row) if row else {
+        return row if row else {
             "total_messages": 0, "user_messages": 0,
             "assistant_messages": 0, "tool_messages": 0,
         }
@@ -485,6 +572,46 @@ class InsightsEngine:
             })
         return result
 
+    def _compute_skill_breakdown(self, skill_usage: List[Dict]) -> Dict[str, Any]:
+        """Process per-skill usage into summary + ranked list."""
+        total_skill_loads = sum(s["view_count"] for s in skill_usage) if skill_usage else 0
+        total_skill_edits = sum(s["manage_count"] for s in skill_usage) if skill_usage else 0
+        total_skill_actions = total_skill_loads + total_skill_edits
+
+        top_skills = []
+        for skill in skill_usage:
+            total_count = skill["view_count"] + skill["manage_count"]
+            percentage = (total_count / total_skill_actions * 100) if total_skill_actions else 0
+            top_skills.append({
+                "skill": skill["skill"],
+                "view_count": skill["view_count"],
+                "manage_count": skill["manage_count"],
+                "total_count": total_count,
+                "percentage": percentage,
+                "last_used_at": skill.get("last_used_at"),
+            })
+
+        top_skills.sort(
+            key=lambda s: (
+                s["total_count"],
+                s["view_count"],
+                s["manage_count"],
+                s["last_used_at"] or 0,
+                s["skill"],
+            ),
+            reverse=True,
+        )
+
+        return {
+            "summary": {
+                "total_skill_loads": total_skill_loads,
+                "total_skill_edits": total_skill_edits,
+                "total_skill_actions": total_skill_actions,
+                "distinct_skills_used": len(skill_usage),
+            },
+            "top_skills": top_skills,
+        }
+
     def _compute_activity_patterns(self, sessions: List[Dict]) -> Dict:
         """Analyze activity patterns by day of week and hour."""
         day_counts = Counter()  # 0=Monday ... 6=Sunday
@@ -644,10 +771,7 @@ class InsightsEngine:
         lines.append(f"  Sessions:          {o['total_sessions']:<12}  Messages:        {o['total_messages']:,}")
         lines.append(f"  Tool calls:        {o['total_tool_calls']:<12,}  User messages:   {o['user_messages']:,}")
         lines.append(f"  Input tokens:      {o['total_input_tokens']:<12,}  Output tokens:   {o['total_output_tokens']:,}")
-        cost_str = f"${o['estimated_cost']:.2f}"
-        if o.get("models_without_pricing"):
-            cost_str += " *"
-        lines.append(f"  Total tokens:      {o['total_tokens']:<12,}  Est. cost:       {cost_str}")
+        lines.append(f"  Total tokens:      {o['total_tokens']:,}")
         if o["total_hours"] > 0:
             lines.append(f"  Active time:       ~{_format_duration(o['total_hours'] * 3600):<11}  Avg session:     ~{_format_duration(o['avg_session_duration'])}")
         lines.append(f"  Avg msgs/session:  {o['avg_messages_per_session']:.1f}")
@@ -657,16 +781,10 @@ class InsightsEngine:
         if report["models"]:
             lines.append("  🤖 Models Used")
             lines.append("  " + "─" * 56)
-            lines.append(f"  {'Model':<30} {'Sessions':>8} {'Tokens':>12} {'Cost':>8}")
+            lines.append(f"  {'Model':<30} {'Sessions':>8} {'Tokens':>12}")
             for m in report["models"]:
                 model_name = m["model"][:28]
-                if m.get("has_pricing"):
-                    cost_cell = f"${m['cost']:>6.2f}"
-                else:
-                    cost_cell = "     N/A"
-                lines.append(f"  {model_name:<30} {m['sessions']:>8} {m['total_tokens']:>12,} {cost_cell}")
-            if o.get("models_without_pricing"):
-                lines.append("  * Cost N/A for custom/self-hosted models")
+                lines.append(f"  {model_name:<30} {m['sessions']:>8} {m['total_tokens']:>12,}")
             lines.append("")
 
         # Platform breakdown
@@ -687,6 +805,28 @@ class InsightsEngine:
                 lines.append(f"  {t['tool']:<28} {t['count']:>8,} {t['percentage']:>7.1f}%")
             if len(report["tools"]) > 15:
                 lines.append(f"  ... and {len(report['tools']) - 15} more tools")
+            lines.append("")
+
+        # Skill usage
+        skills = report.get("skills", {})
+        top_skills = skills.get("top_skills", [])
+        if top_skills:
+            lines.append("  🧠 Top Skills")
+            lines.append("  " + "─" * 56)
+            lines.append(f"  {'Skill':<28} {'Loads':>7} {'Edits':>7} {'Last used':>11}")
+            for skill in top_skills[:10]:
+                last_used = "—"
+                if skill.get("last_used_at"):
+                    last_used = datetime.fromtimestamp(skill["last_used_at"]).strftime("%b %d")
+                lines.append(
+                    f"  {skill['skill'][:28]:<28} {skill['view_count']:>7,} {skill['manage_count']:>7,} {last_used:>11}"
+                )
+            summary = skills.get("summary", {})
+            lines.append(
+                f"  Distinct skills: {summary.get('distinct_skills_used', 0)}  "
+                f"Loads: {summary.get('total_skill_loads', 0):,}  "
+                f"Edits: {summary.get('total_skill_edits', 0):,}"
+            )
             lines.append("")
 
         # Activity patterns
@@ -747,10 +887,6 @@ class InsightsEngine:
         # Overview
         lines.append(f"**Sessions:** {o['total_sessions']} | **Messages:** {o['total_messages']:,} | **Tool calls:** {o['total_tool_calls']:,}")
         lines.append(f"**Tokens:** {o['total_tokens']:,} (in: {o['total_input_tokens']:,} / out: {o['total_output_tokens']:,})")
-        cost_note = ""
-        if o.get("models_without_pricing"):
-            cost_note = " _(excludes custom/self-hosted models)_"
-        lines.append(f"**Est. cost:** ${o['estimated_cost']:.2f}{cost_note}")
         if o["total_hours"] > 0:
             lines.append(f"**Active time:** ~{_format_duration(o['total_hours'] * 3600)} | **Avg session:** ~{_format_duration(o['avg_session_duration'])}")
         lines.append("")
@@ -759,8 +895,7 @@ class InsightsEngine:
         if report["models"]:
             lines.append("**🤖 Models:**")
             for m in report["models"][:5]:
-                cost_str = f"${m['cost']:.2f}" if m.get("has_pricing") else "N/A"
-                lines.append(f"  {m['model'][:25]} — {m['sessions']} sessions, {m['total_tokens']:,} tokens, {cost_str}")
+                lines.append(f"  {m['model'][:25]} — {m['sessions']} sessions, {m['total_tokens']:,} tokens")
             lines.append("")
 
         # Platforms (if multi-platform)
@@ -775,6 +910,18 @@ class InsightsEngine:
             lines.append("**🔧 Top Tools:**")
             for t in report["tools"][:8]:
                 lines.append(f"  {t['tool']} — {t['count']:,} calls ({t['percentage']:.1f}%)")
+            lines.append("")
+
+        skills = report.get("skills", {})
+        if skills.get("top_skills"):
+            lines.append("**🧠 Top Skills:**")
+            for skill in skills["top_skills"][:5]:
+                suffix = ""
+                if skill.get("last_used_at"):
+                    suffix = f", last used {datetime.fromtimestamp(skill['last_used_at']).strftime('%b %d')}"
+                lines.append(
+                    f"  {skill['skill']} — {skill['view_count']:,} loads, {skill['manage_count']:,} edits{suffix}"
+                )
             lines.append("")
 
         # Activity summary

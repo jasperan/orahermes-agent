@@ -496,6 +496,7 @@
 
 <script>
 const API = '';
+const DASHBOARD_KEY = new URLSearchParams(window.location.search).get('key') || '';
 const REFRESH_MS = 3000;
 const ROLE_COLORS = { user: '#3b82f6', assistant: '#8b5cf6', tool: '#f59e0b' };
 const CHART_COLORS = ['#f80000', '#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#06b6d4', '#ff6b35', '#ec4899'];
@@ -505,9 +506,17 @@ let prevTokens = null;
 let prevMessageCount = 0;
 let tooltip = d3.select('#tooltip');
 
+function apiFetch(path) {
+  const headers = DASHBOARD_KEY ? { 'X-OraHermes-Dashboard-Key': DASHBOARD_KEY } : {};
+  return fetch(`${API}${path}`, { headers }).then(r => {
+    if (!r.ok) throw new Error(`Dashboard API ${r.status}`);
+    return r.json();
+  });
+}
+
 // ── KPI ──
 async function updateKPIs() {
-  const data = await fetch(`${API}/api/overview`).then(r => r.json());
+  const data = await apiFetch('/api/overview');
 
   animateValue('kpi-sessions', data.total_sessions);
   animateValue('kpi-messages', data.total_messages);
@@ -541,7 +550,7 @@ function animateValue(id, target) {
 
 // ── Role donut ──
 async function updateRoles() {
-  const data = await fetch(`${API}/api/roles`).then(r => r.json());
+  const data = await apiFetch('/api/roles');
   const container = d3.select('#chart-roles');
   container.selectAll('*').remove();
 
@@ -597,7 +606,7 @@ async function updateRoles() {
 
 // ── Tool usage bar chart ──
 async function updateTools() {
-  const data = await fetch(`${API}/api/tools`).then(r => r.json());
+  const data = await apiFetch('/api/tools');
   const container = d3.select('#chart-tools');
   container.selectAll('*').remove();
 
@@ -652,7 +661,7 @@ async function updateTools() {
 
 // ── Timeline bar chart ──
 async function updateTimeline() {
-  const data = await fetch(`${API}/api/timeline`).then(r => r.json());
+  const data = await apiFetch('/api/timeline');
   const container = d3.select('#chart-timeline');
   container.selectAll('*').remove();
 
@@ -730,7 +739,7 @@ async function updateTimeline() {
 
 // ── Content length scatter ──
 async function updateLengths() {
-  const data = await fetch(`${API}/api/content_lengths`).then(r => r.json());
+  const data = await apiFetch('/api/content_lengths');
   const container = d3.select('#chart-lengths');
   container.selectAll('*').remove();
 
@@ -791,7 +800,7 @@ async function updateLengths() {
 
 // ── Token estimation ──
 async function updateTokens() {
-  const data = await fetch(`${API}/api/tokens`).then(r => r.json());
+  const data = await apiFetch('/api/tokens');
 
   // Update KPI cards
   animateValue('kpi-input-tokens', data.estimated_input);
@@ -954,7 +963,7 @@ function updateTokenSessionsChart(data) {
 
 // ── Sessions table ──
 async function updateSessions() {
-  const data = await fetch(`${API}/api/sessions`).then(r => r.json());
+  const data = await apiFetch('/api/sessions');
   const tbody = document.getElementById('session-tbody');
   tbody.innerHTML = '';
   data.slice(0, 20).forEach(s => {
@@ -972,7 +981,7 @@ async function updateSessions() {
 
 // ── Live message feed ──
 async function updateFeed() {
-  const data = await fetch(`${API}/api/messages?limit=30`).then(r => r.json());
+  const data = await apiFetch('/api/messages?limit=30');
   const feed = document.getElementById('message-feed');
   const newCount = data.length;
 

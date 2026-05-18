@@ -10,12 +10,13 @@ past sessions.  Three search modes:
     content even with completely different wording.
   - keyword: Traditional Oracle Text CONTAINS search.  Exact term matching.
 
-Falls back to keyword-only session_search when Oracle vector support is
-unavailable (e.g. SQLite fallback or vector migration not applied).
+Hybrid and vector modes require the Oracle vector migration. Keyword mode uses
+Oracle-backed message search.
 """
 
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -60,34 +61,17 @@ def semantic_recall(
     if role_filter and role_filter.strip():
         role_list = [r.strip() for r in role_filter.split(",") if r.strip()]
 
-    # Fall back to keyword search if vector support isn't available
-    if not _has_vector_support(db):
-        logger.info("Vector support unavailable, falling back to keyword search")
-        try:
-            results = db.search_messages(
-                query=query,
-                role_filter=role_list,
-                limit=limit,
-                offset=0,
-            )
-            return json.dumps(
-                {
-                    "success": True,
-                    "query": query,
-                    "mode": "keyword (fallback)",
-                    "results": results or [],
-                    "count": len(results) if results else 0,
-                    "note": "Vector search unavailable. Using keyword fallback. "
-                    "Apply oracle_setup_vector.sql to enable semantic search.",
-                },
-                ensure_ascii=False,
-            )
-        except Exception as e:
-            logger.warning("Keyword fallback failed: %s", e)
-            return json.dumps(
-                {"success": False, "error": f"Search failed: {e}"},
-                ensure_ascii=False,
-            )
+    if mode in ("hybrid", "vector") and not _has_vector_support(db):
+        return json.dumps(
+            {
+                "success": False,
+                "error": (
+                    "Oracle vector search is not available. Apply "
+                    "oracle_setup_vector.sql or use mode='keyword'."
+                ),
+            },
+            ensure_ascii=False,
+        )
 
     try:
         if mode == "vector":
@@ -137,8 +121,8 @@ def semantic_recall(
 
 
 def check_semantic_recall_requirements() -> bool:
-    """Semantic recall works with any backend; vector features need Oracle."""
-    return True
+    """Semantic recall is exposed only against the Oracle-backed session store."""
+    return all(os.getenv(name) for name in ("ORACLE_DSN", "ORACLE_USER", "ORACLE_PASSWORD"))
 
 
 SEMANTIC_RECALL_SCHEMA = {
@@ -156,7 +140,7 @@ SEMANTIC_RECALL_SCHEMA = {
         "- The user describes something conceptually ('that time we fixed the deployment')\n"
         "- session_search returns nothing because the wording doesn't match\n"
         "- You want to find ALL conversations about a topic, not just keyword matches\n\n"
-        "Falls back to keyword search if Oracle vector support isn't configured."
+        "Hybrid/vector modes require Oracle AI Vector Search to be configured."
     ),
     "parameters": {
         "type": "object",

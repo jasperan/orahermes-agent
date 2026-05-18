@@ -46,7 +46,7 @@
 A fork of [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) that replaces the default inference and storage layers with Oracle Cloud Infrastructure services, and adds **semantic long-term memory** via Oracle AI Vector Search:
 
 - **OCI GenAI** (xAI Grok models) or **Ollama** (local inference) instead of OpenRouter
-- **Oracle 26ai Free** instead of SQLite for session and message storage
+- **Oracle 26ai Free** as the only session and message store
 - **Oracle AI Vector Search** -- every message is embedded in-database using an ONNX model, enabling meaning-based recall across all past conversations
 
 ---
@@ -117,6 +117,9 @@ cd orahermes-agent
 # Run the setup script (installs uv, creates venv, installs deps)
 ./setup-hermes.sh
 
+# Windows PowerShell installer
+powershell -ExecutionPolicy Bypass -File scripts/install.ps1
+
 # Or install manually
 pip install -e ".[all]"
 ```
@@ -176,7 +179,7 @@ Configure your `~/.oci/config` profile and set in `.env`:
 ```bash
 OCI_PROFILE=DEFAULT
 OCI_REGION=us-chicago-1
-OCI_COMPARTMENT_ID=ocid1.compartment.oc1..your-compartment-ocid
+OCI_COMPARTMENT_ID=<your-compartment-ocid>
 LLM_MODEL=xai.grok-3-mini
 ```
 
@@ -236,9 +239,9 @@ User input
       -> Persist message + vector embedding to Oracle DB
 ```
 
-### Session Backend (Dependency Injection)
+### Session Backend
 
-`hermes_state.get_session_db()` returns `OracleSessionDB` if `ORACLE_DSN` is set, otherwise falls back to `SessionDB` (SQLite). Both implement identical method signatures, so every component works transparently with either backend. Vector search methods (`semantic_search`, `hybrid_search`, `embed_message`) are only available on `OracleSessionDB`.
+`hermes_state.get_session_db()` always returns the Oracle-backed `SessionDB` compatibility facade. Set `ORACLE_DSN`, `ORACLE_USER`, and `ORACLE_PASSWORD`, then apply `oracle_setup.sql`. There is no local database fallback in OraHermes. Vector search methods (`semantic_search`, `hybrid_search`, `embed_message`) are provided by Oracle AI Vector Search.
 
 ---
 
@@ -352,12 +355,8 @@ Each adapter maintains per-chat session state via `OracleSessionDB`, enabling co
 
 ### Persistent Memory
 
-Two bounded, file-backed memory stores injected into the system prompt at session start:
-
-- **`MEMORY.md`**: Agent's personal notes -- environment facts, project conventions, tool quirks, lessons learned
-- **`USER.md`**: What the agent knows about the user -- name, role, preferences, communication style
-
-Memory is captured as a frozen snapshot at session start (preserving prefix cache stability) while writes take effect immediately on disk for the next session. Content is scanned for prompt injection and exfiltration patterns before acceptance.
+OraHermes disables the legacy file-backed memory stores and external memory
+providers. Runtime persistence and recall use Oracle Database only.
 
 ### Context Compression
 
@@ -439,14 +438,14 @@ This fork makes **three additions** on top of the upstream hermes-agent codebase
 
 New files: `oci_client.py`, `agent/auxiliary_client.py` (multi-provider), `agent/model_metadata.py` (local catalogue).
 
-### 2. SQLite --> Oracle 26ai Free
+### 2. Local File Storage --> Oracle 26ai Free
 
 | | Upstream | orahermes-agent |
 |---|---|---|
-| **Database** | SQLite (local file) | Oracle 26ai Free (container) |
-| **Driver** | `sqlite3` (stdlib) | `oracledb` (python-oracledb) |
+| **Database** | Local file-backed store | Oracle 26ai Free (container) |
+| **Driver** | Standard local driver | `oracledb` (python-oracledb) |
 | **Connection** | File path | Connection pool (`oracledb.create_pool`) |
-| **Full-text search** | FTS5 | Oracle Text (`CTXSYS.CONTEXT`) |
+| **Full-text search** | Local text index | Oracle Text (`CTXSYS.CONTEXT`) |
 
 New files: `oracle_state.py` (drop-in `OracleSessionDB`), `oracle_setup.sql` (DDL).
 
@@ -457,7 +456,7 @@ New files: `oracle_state.py` (drop-in `OracleSessionDB`), `oracle_setup.sql` (DD
 | **Long-term recall** | Keyword search only | Keyword + vector similarity + hybrid |
 | **Embeddings** | None | In-DB ONNX model (`ALL_MINILM_L6_V2`, 384d) |
 | **Vector index** | None | HNSW with cosine distance, 95% target accuracy |
-| **Search tool** | `session_search` (FTS5) | `session_search` (keywords) + `semantic_recall` (vector/hybrid) |
+| **Search tool** | `session_search` (keyword) | `session_search` (keywords) + `semantic_recall` (vector/hybrid) |
 
 New files: `oracle_setup_vector.sql` (migration), `tools/semantic_recall_tool.py`. Extended: `oracle_state.py` (vector methods), `run_agent.py` (auto-embed on insert).
 
@@ -545,7 +544,7 @@ orahermes-agent/
 ├── oracle_state.py              # OracleSessionDB: sessions, messages, vector search
 ├── oracle_setup.sql             # Base schema DDL (sessions + messages + Oracle Text)
 ├── oracle_setup_vector.sql      # Vector migration DDL (embedding column + HNSW index)
-├── hermes_state.py              # SQLite fallback + get_session_db() factory
+├── hermes_state.py              # Oracle-only SessionDB compatibility facade
 ├── oci_client.py                # OCI GenAI client factory
 ├── hermes_constants.py          # Models, endpoints, defaults
 ├── toolsets.py                  # Toolset definitions & resolution

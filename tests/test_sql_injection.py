@@ -15,20 +15,21 @@ def test_session_cols_no_injection_chars():
 
 
 def test_get_sessions_all_query_is_parameterized():
-    """_GET_SESSIONS_ALL must use a ? placeholder for the cutoff value."""
+    """_GET_SESSIONS_ALL must use an Oracle bind for the cutoff value."""
     query = InsightsEngine._GET_SESSIONS_ALL
-    assert "?" in query
-    assert "started_at >= ?" in query
+    assert ":cutoff" in query
+    assert "started_at >= :cutoff" in query
     # Must not embed any runtime-variable content via brace interpolation
     assert "{" not in query
 
 
 def test_get_sessions_with_source_query_is_parameterized():
-    """_GET_SESSIONS_WITH_SOURCE must use ? placeholders for both parameters."""
+    """_GET_SESSIONS_WITH_SOURCE must use Oracle binds for both parameters."""
     query = InsightsEngine._GET_SESSIONS_WITH_SOURCE
-    assert query.count("?") == 2
-    assert "started_at >= ?" in query
-    assert "source = ?" in query
+    assert ":cutoff" in query
+    assert ":source" in query
+    assert "started_at >= :cutoff" in query
+    assert "source = :source" in query
     assert "{" not in query
 
 

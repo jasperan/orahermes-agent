@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **orahermes-agent** is a fork of [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) — a persistent AI agent harness built around an OpenAI-compatible tool-calling loop. Two provider swaps from upstream:
 
 - **OpenRouter → OCI GenAI** (xAI Grok models via `oci-openai` SDK)
-- **SQLite → Oracle 26ai Free** (`oracledb` with Oracle Text full-text search + optional vector search)
+- **Oracle 26ai Free only** (`oracledb` with Oracle Text full-text search + optional vector search)
 
 Everything else (skills, messaging gateways, cron scheduler, context compression, terminal backends, batch processing, ACP adapter, web API) is preserved from upstream.
 
@@ -90,9 +90,11 @@ model_tools.py             ← imports registry + triggers discovery via _discov
 run_agent.py, cli.py, batch_runner.py
 ```
 
-### Session Backend (Dependency Injection)
+### Session Backend
 
-`hermes_state.get_session_db()` returns `OracleSessionDB` if `ORACLE_DSN` is set, else falls back to `SessionDB` (SQLite). Both implement identical method signatures: `create_session()`, `end_session()`, `append_message()`, `get_messages()`, `search_messages()`.
+`hermes_state.get_session_db()` always returns the Oracle-backed `SessionDB`
+facade. There is no local database fallback; missing `ORACLE_DSN`,
+`ORACLE_USER`, `ORACLE_PASSWORD`, or `oracledb` fails explicitly.
 
 ### Key Oracle-Specific Files
 
@@ -117,7 +119,7 @@ run_agent.py, cli.py, batch_runner.py
 - **`webapi/`** — FastAPI server with SSE streaming for browser/API clients.
 - **`acp_adapter/`** — Agent Client Protocol adapter (`hermes-acp` binary).
 - **`cron/`** — croniter-based task scheduler.
-- **`tools/semantic_recall_tool.py`** — uses Oracle AI Vector Search when `oracle_setup_vector.sql` has been applied; falls back gracefully if vectors aren't provisioned.
+- **`tools/semantic_recall_tool.py`** — uses Oracle AI Vector Search when `oracle_setup_vector.sql` has been applied; keyword mode uses Oracle-backed text search.
 - **`tools/mcp_tool.py`** — MCP client that exposes external MCP server tools into the agent loop.
 
 ## Adding a New Tool
@@ -147,7 +149,7 @@ All handlers must return a JSON string. The registry wraps exceptions in `{"erro
 
 - **`[oracle]` extra is not in `[all]`** by design — install it explicitly: `pip install -e ".[oracle]"`. The `[all]` group omits oracle to avoid forcing OCI/oracledb on non-Oracle installs.
 - **`tools/openrouter_client.py`** is named after the upstream file but actually wraps `AsyncOciOpenAI`. Don't rename it — too many imports reference it by that path.
-- **Vector search** requires `oracle_setup_vector.sql` applied AND the `ALL_MINILM_L6_V2` ONNX model loaded into the DB (see SQL file header for `DBMS_VECTOR.LOAD_ONNX_MODEL` instructions). Missing model → `semantic_recall_tool` silently falls back to keyword search.
+- **Vector search** requires `oracle_setup_vector.sql` applied AND the `ALL_MINILM_L6_V2` ONNX model loaded into the DB (see SQL file header for `DBMS_VECTOR.LOAD_ONNX_MODEL` instructions). If vector search is unavailable, use `semantic_recall_tool` with `mode="keyword"` for Oracle-backed text search.
 - **pytest runs with `-n auto`** (parallel workers via pytest-xdist). Tests that share global state or hit the same DB need `@pytest.mark.usefixtures` isolation.
 - **OCI auth errors** almost always mean the key_file path in `~/.oci/config` is wrong or the tenancy OCID doesn't match the compartment used in `hermes_constants.py`.
 

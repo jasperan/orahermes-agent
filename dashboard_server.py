@@ -5,33 +5,76 @@ Serves a real-time dashboard and JSON API endpoints that query
 Oracle 26ai Free for session/message telemetry.
 
 Usage:
-    ORACLE_DSN=localhost:1521/FREEPDB1 ORACLE_USER=hermes ORACLE_PASSWORD=HermesAgent_2025 \
-        python dashboard_server.py [--port 8501]
+    ORACLE_DSN=localhost:1521/FREEPDB1 ORACLE_USER=hermes ORACLE_PASSWORD=... \
+    ORAHERMES_DASHBOARD_KEY=... \
+        python dashboard_server.py [--host 127.0.0.1] [--port 8501]
 """
 
 import json
 import os
 import time
+from secrets import compare_digest
 from contextlib import contextmanager
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from typing import Any, Dict, Iterator, List, Optional
 from urllib.parse import urlparse, parse_qs
 
-import oracledb
-import tiktoken
+try:
+    import oracledb
+except ImportError as exc:  # pragma: no cover - install hint
+    oracledb = None
+    _ORACLEDB_IMPORT_ERROR: ImportError | None = exc
+else:
+    _ORACLEDB_IMPORT_ERROR = None
 
-oracledb.defaults.fetch_lobs = False
+try:
+    import tiktoken
+except ImportError:  # pragma: no cover - optional precision dependency
+    tiktoken = None
 
-# Initialize tiktoken encoder once (cl100k_base works well for modern LLMs)
-ENCODER = tiktoken.get_encoding("cl100k_base")
+if oracledb is not None:
+    oracledb.defaults.fetch_lobs = False
+
+# Initialize tiktoken encoder once when available (cl100k_base works well for
+# modern LLMs). The dashboard remains usable without it by falling back to a
+# rough character-based estimate.
+ENCODER = tiktoken.get_encoding("cl100k_base") if tiktoken is not None else None
 
 DSN = os.getenv("ORACLE_DSN", "localhost:1521/FREEPDB1")
 USER = os.getenv("ORACLE_USER", "hermes")
 PASSWORD = os.getenv("ORACLE_PASSWORD", "")
+DASHBOARD_KEY = os.getenv("ORAHERMES_DASHBOARD_KEY", "").strip()
 
 
-def get_conn() -> oracledb.Connection:
+def _is_loopback_host(host: str) -> bool:
+    return host in {"", "localhost", "127.0.0.1", "::1"}
+
+
+def _validate_bind(host: str) -> None:
+    if not _is_loopback_host(host) and not DASHBOARD_KEY:
+        raise RuntimeError(
+            "Refusing to bind the legacy Oracle dashboard to a network interface "
+            "without ORAHERMES_DASHBOARD_KEY."
+        )
+
+
+def get_conn():
+    if oracledb is None:
+        raise RuntimeError(
+            "Oracle dashboard requires the 'oracledb' package. "
+            "Install OraHermes with its core dependencies."
+        ) from _ORACLEDB_IMPORT_ERROR
+    if not PASSWORD:
+        raise RuntimeError("Oracle dashboard requires ORACLE_PASSWORD to be set.")
     return oracledb.connect(user=USER, password=PASSWORD, dsn=DSN)
+
+
+def estimate_tokens(text: str) -> int:
+    if not text:
+        return 0
+    if ENCODER is not None:
+        return len(ENCODER.encode(text))
+    return max(1, len(text) // 4)
 
 
 @contextmanager
@@ -169,7 +212,7 @@ def query_content_lengths() -> List[Dict[str, Any]]:
 
 
 def query_token_estimates() -> Dict[str, Any]:
-    """Estimate token counts from message content using tiktoken.
+    """Estimate token counts from message content.
 
     Returns per-role totals, per-session breakdown, and grand totals.
     """
@@ -187,10 +230,10 @@ def query_token_estimates() -> Dict[str, Any]:
     for session_id, role, content, tool_calls in rows:
         tokens = 0
         if content:
-            tokens += len(ENCODER.encode(content))
+            tokens += estimate_tokens(content)
         if tool_calls:
             tc_str = tool_calls if isinstance(tool_calls, str) else json.dumps(tool_calls)
-            tokens += len(ENCODER.encode(tc_str))
+            tokens += estimate_tokens(tc_str)
 
         grand_total += tokens
         role_totals[role] = role_totals.get(role, 0) + tokens
@@ -224,7 +267,7 @@ DASHBOARD_HTML = None
 def load_dashboard_html() -> None:
     global DASHBOARD_HTML
     html_path = os.path.join(os.path.dirname(__file__), "dashboard.html")
-    with open(html_path, "r") as f:
+    with open(html_path, "r", encoding="utf-8") as f:
         DASHBOARD_HTML = f.read()
 
 
@@ -240,30 +283,56 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(DASHBOARD_HTML.encode())
         elif path == "/api/overview":
+            if not self._authorized(params):
+                return
             self._json_response(query_overview())
         elif path == "/api/sessions":
+            if not self._authorized(params):
+                return
             self._json_response(query_sessions())
         elif path == "/api/messages":
+            if not self._authorized(params):
+                return
             sid = params.get("session_id", [None])[0]
             limit = int(params.get("limit", [100])[0])
             self._json_response(query_messages(sid, limit))
         elif path == "/api/roles":
+            if not self._authorized(params):
+                return
             self._json_response(query_role_distribution())
         elif path == "/api/timeline":
+            if not self._authorized(params):
+                return
             self._json_response(query_timeline())
         elif path == "/api/tools":
+            if not self._authorized(params):
+                return
             self._json_response(query_tool_usage())
         elif path == "/api/content_lengths":
+            if not self._authorized(params):
+                return
             self._json_response(query_content_lengths())
         elif path == "/api/tokens":
+            if not self._authorized(params):
+                return
             self._json_response(query_token_estimates())
         else:
             self.send_error(404)
 
+    def _authorized(self, params: Dict[str, List[str]]) -> bool:
+        if not DASHBOARD_KEY:
+            return True
+        supplied = self.headers.get("X-OraHermes-Dashboard-Key", "")
+        if not supplied:
+            supplied = params.get("key", [""])[0]
+        if supplied and compare_digest(supplied, DASHBOARD_KEY):
+            return True
+        self.send_error(401)
+        return False
+
     def _json_response(self, data):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
 
@@ -274,13 +343,17 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="orahermes-agent live dashboard")
+    parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8501)
     args = parser.parse_args()
 
+    _validate_bind(args.host)
     load_dashboard_html()
 
-    server = HTTPServer(("0.0.0.0", args.port), DashboardHandler)
-    print(f"orahermes dashboard running at http://localhost:{args.port}")
+    server = HTTPServer((args.host, args.port), DashboardHandler)
+    print(f"orahermes dashboard running at http://{args.host}:{args.port}")
+    if DASHBOARD_KEY:
+        print("Dashboard API key enforcement: enabled")
     print(f"Oracle DB: {USER}@{DSN}")
     print("Press Ctrl+C to stop")
     try:

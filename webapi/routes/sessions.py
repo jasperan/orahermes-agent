@@ -1,5 +1,4 @@
 import json
-import sqlite3
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -130,15 +129,7 @@ async def delete_session(
     session_id: str,
     session_db: Annotated[SessionDB, Depends(get_session_db)],
 ) -> dict[str, bool | str]:
-    try:
-        deleted = session_db.delete_session(session_id)
-    except sqlite3.IntegrityError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Session '{session_id}' cannot be deleted because it has dependent forked sessions"
-            ),
-        ) from exc
+    deleted = session_db.delete_session(session_id)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
     return {"ok": True, "session_id": session_id}
