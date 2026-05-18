@@ -249,9 +249,22 @@ _CREDENTIAL_NAMES = frozenset({
     "ANTHROPIC_BASE_URL",
 })
 
+_ORACLE_TEST_DB_ENV = frozenset({
+    "ORACLE_DSN",
+    "ORACLE_USER",
+    "ORACLE_PASSWORD",
+})
+_ORACLE_TEST_DB_ALLOW_VAR = "ORAHERMES_ALLOW_ORACLE_TEST_DB"
+
+
+def _allow_oracle_test_db_env() -> bool:
+    return os.getenv(_ORACLE_TEST_DB_ALLOW_VAR) == "1"
+
 
 def _looks_like_credential(name: str) -> bool:
     """True if env var name matches a credential-shaped pattern."""
+    if _allow_oracle_test_db_env() and name in _ORACLE_TEST_DB_ENV:
+        return False
     if name in _CREDENTIAL_NAMES:
         return True
     return any(name.endswith(suf) for suf in _CREDENTIAL_SUFFIXES)

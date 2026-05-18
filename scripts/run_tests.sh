@@ -58,7 +58,15 @@ fi
 # ── Hermetic environment ────────────────────────────────────────────────────
 # Mirror what CI does in .github/workflows/tests.yml + what conftest.py does.
 # Unset every credential-shaped var currently in the environment.
+ALLOW_ORACLE_TEST_DB="${ORAHERMES_ALLOW_ORACLE_TEST_DB:-0}"
 while IFS='=' read -r name _; do
+  if [ "$ALLOW_ORACLE_TEST_DB" = "1" ]; then
+    case "$name" in
+      ORACLE_DSN|ORACLE_USER|ORACLE_PASSWORD)
+        continue
+        ;;
+    esac
+  fi
   case "$name" in
     *_API_KEY|*_TOKEN|*_SECRET|*_PASSWORD|*_CREDENTIALS|*_ACCESS_KEY| \
     *_SECRET_ACCESS_KEY|*_PRIVATE_KEY|*_OAUTH_TOKEN|*_WEBHOOK_SECRET| \
@@ -117,7 +125,11 @@ cd "$REPO_ROOT"
 ARGS=("$@")
 
 echo "▶ running pytest with $WORKERS workers, hermetic env, in $REPO_ROOT"
-echo "  (TZ=UTC LANG=C.UTF-8 PYTHONHASHSEED=0; all credential env vars unset)"
+if [ "$ALLOW_ORACLE_TEST_DB" = "1" ]; then
+  echo "  (TZ=UTC LANG=C.UTF-8 PYTHONHASHSEED=0; credential env vars unset except ORACLE_DSN/ORACLE_USER/ORACLE_PASSWORD)"
+else
+  echo "  (TZ=UTC LANG=C.UTF-8 PYTHONHASHSEED=0; all credential env vars unset)"
+fi
 
 # -o "addopts=" clears pyproject.toml's `-n auto` so our -n wins.
 exec "$PYTHON" -m pytest \

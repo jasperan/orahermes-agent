@@ -976,9 +976,9 @@ class OracleSessionDB:
     ) -> List[Dict[str, Any]]:
         if not query or not query.strip():
             return []
-        clauses = ["LOWER(m.content) LIKE :query"]
+        clauses = ["DBMS_LOB.INSTR(LOWER(m.content), :query) > 0"]
         params: Dict[str, Any] = {
-            "query": f"%{self._escape_like(query.lower())}%",
+            "query": query.strip().lower(),
             "limit": limit,
             "offset": offset,
         }

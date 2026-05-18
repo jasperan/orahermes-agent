@@ -4,7 +4,7 @@
 -- Create user (run as SYSDBA first):
 -- ALTER SESSION SET CONTAINER = FREEPDB1;
 -- CREATE USER hermes IDENTIFIED BY <password> DEFAULT TABLESPACE users QUOTA UNLIMITED ON users;
--- GRANT CONNECT, RESOURCE, CTX_APP TO hermes;
+-- GRANT CONNECT, RESOURCE, CTXAPP TO hermes;
 
 -- Sessions table
 CREATE TABLE sessions (
