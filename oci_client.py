@@ -10,13 +10,25 @@ OCI_GENAI_URL_TEMPLATE = (
 )
 
 DEFAULT_REGION = "us-chicago-1"
-DEFAULT_PROFILE = os.getenv("OCI_PROFILE", "DEFAULT")
+DEFAULT_PROFILE = os.getenv("OCI_PROFILE", "foosball")
 DEFAULT_COMPARTMENT_ID = os.getenv("OCI_COMPARTMENT_ID", "")
 
 
 def get_oci_base_url(region: str = DEFAULT_REGION) -> str:
     """Return the OCI GenAI OpenAI-compatible base URL for a region."""
     return OCI_GENAI_URL_TEMPLATE.format(region=region)
+
+
+def _make_oci_client(client_cls, profile_name, compartment_id, region, **kwargs):
+    """Build an OCI GenAI client of the given class with shared config/auth."""
+    if not compartment_id:
+        raise RuntimeError("OCI_COMPARTMENT_ID is required to create an OCI GenAI client.")
+    return client_cls(
+        base_url=get_oci_base_url(region),
+        auth=OciUserPrincipalAuth(profile_name=profile_name),
+        compartment_id=compartment_id,
+        **kwargs,
+    )
 
 
 def create_oci_client(
@@ -26,14 +38,7 @@ def create_oci_client(
     **kwargs,
 ) -> OciOpenAI:
     """Create a synchronous OCI GenAI client."""
-    if not compartment_id:
-        raise RuntimeError("OCI_COMPARTMENT_ID is required to create an OCI GenAI client.")
-    return OciOpenAI(
-        base_url=get_oci_base_url(region),
-        auth=OciUserPrincipalAuth(profile_name=profile_name),
-        compartment_id=compartment_id,
-        **kwargs,
-    )
+    return _make_oci_client(OciOpenAI, profile_name, compartment_id, region, **kwargs)
 
 
 def create_oci_async_client(
@@ -43,11 +48,4 @@ def create_oci_async_client(
     **kwargs,
 ) -> AsyncOciOpenAI:
     """Create an asynchronous OCI GenAI client."""
-    if not compartment_id:
-        raise RuntimeError("OCI_COMPARTMENT_ID is required to create an OCI GenAI client.")
-    return AsyncOciOpenAI(
-        base_url=get_oci_base_url(region),
-        auth=OciUserPrincipalAuth(profile_name=profile_name),
-        compartment_id=compartment_id,
-        **kwargs,
-    )
+    return _make_oci_client(AsyncOciOpenAI, profile_name, compartment_id, region, **kwargs)

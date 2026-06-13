@@ -47,7 +47,7 @@ A fork of [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-age
 
 - **OCI GenAI** (xAI Grok models) or **Ollama** (local inference) instead of OpenRouter
 - **Oracle 26ai Free** as the only session and message store
-- **Oracle AI Vector Search** -- every message is embedded in-database using an ONNX model, enabling meaning-based recall across all past conversations
+- **Oracle AI Vector Search** -- messages are embedded in-database using an ONNX model, enabling meaning-based recall across past conversations
 
 ---
 
@@ -236,7 +236,7 @@ User input
       -> Tool calls detected?
         -> Yes: registry.dispatch() -> execute tool -> embed result -> loop back
         -> No: return text response
-      -> Persist message + vector embedding to Oracle DB
+      -> Persist message to Oracle DB (vector embeddings via backfill)
 ```
 
 ### Session Backend
@@ -249,19 +249,18 @@ User input
 
 ### Semantic Memory (Oracle AI Vector Search)
 
-The headline feature unique to this fork. Every message exchanged with the agent is automatically embedded as a 384-dimensional vector using an in-database ONNX model (`ALL_MINILM_L6_V2`), stored in a `VECTOR(384, FLOAT32)` column, and indexed with an HNSW vector index for fast approximate nearest-neighbor search.
+The headline feature unique to this fork. Messages are embedded as 384-dimensional vectors using an in-database ONNX model (`ALL_MINILM_L6_V2`), stored in a `VECTOR(384, FLOAT32)` column, and indexed with an HNSW vector index for fast approximate nearest-neighbor search.
 
 This gives the agent **semantic long-term memory** -- it can recall past conversations by *meaning*, not just keywords.
 
 **How it works:**
 
-1. **Auto-embed on insert**: After every `append_message()`, a background thread calls `VECTOR_EMBEDDING()` in Oracle to generate and store the embedding. Zero Python-side overhead -- the ONNX model runs inside the database.
+1. **In-database embeddings**: `VECTOR_EMBEDDING()` runs the ONNX model inside Oracle -- zero Python-side inference overhead. `db.embed_message(message_id, content)` embeds a single row; `db.backfill_embeddings()` embeds any messages that don't have an embedding yet. Run the backfill after applying the migration (or on a schedule) to populate semantic memory for existing conversations.
 2. **Three search modes** via the `semantic_recall` tool:
    - **`hybrid`** (default): Combines Oracle Text keyword search with vector cosine similarity, weighted 40/60, and re-ranks results. Best overall accuracy.
    - **`vector`**: Pure semantic similarity. Finds conceptually related conversations even with completely different wording.
    - **`keyword`**: Traditional Oracle Text `CONTAINS` search. Exact term matching.
-3. **Backfill**: `db.backfill_embeddings()` processes existing messages that don't have embeddings yet, useful when enabling vector search on an existing database.
-4. **Graceful degradation**: If the vector migration hasn't been applied or the ONNX model isn't loaded, the tool automatically falls back to keyword search. The agent works fine without vector support -- it's purely additive.
+3. **Capability detection**: `db.vector_search_enabled` checks that the migration is applied (embedding column present) *and* the ONNX model is loaded. When vector support is unavailable, the `semantic_recall` tool reports that `oracle_setup_vector.sql` must be applied, and `keyword` mode keeps working against Oracle Text. Vector search is purely additive -- the agent works fine without it.
 
 **Example agent usage:**
 
@@ -458,7 +457,7 @@ New files: `oracle_state.py` (drop-in `OracleSessionDB`), `oracle_setup.sql` (DD
 | **Vector index** | None | HNSW with cosine distance, 95% target accuracy |
 | **Search tool** | `session_search` (keyword) | `session_search` (keywords) + `semantic_recall` (vector/hybrid) |
 
-New files: `oracle_setup_vector.sql` (migration), `tools/semantic_recall_tool.py`. Extended: `oracle_state.py` (vector methods), `run_agent.py` (auto-embed on insert).
+New files: `oracle_setup_vector.sql` (migration), `tools/semantic_recall_tool.py`. Extended: `oracle_state.py` (vector methods: `embed_message`, `backfill_embeddings`, `semantic_search`, `hybrid_search`, `vector_search_enabled`).
 
 ---
 

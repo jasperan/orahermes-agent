@@ -101,6 +101,22 @@ class OracleSessionDB:
         if self.pool:
             self.pool.close()
 
+    def _exec(self, sql: str, params: Optional[Dict[str, Any]] = None) -> None:
+        """Run a single write statement and commit."""
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, params or {})
+            conn.commit()
+
+    def _exec_returning_rowcount(self, sql: str, params: Optional[Dict[str, Any]] = None) -> int:
+        """Run a single write statement, commit, and return affected row count."""
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, params or {})
+                count = cur.rowcount
+            conn.commit()
+        return count
+
     # ------------------------------------------------------------------
     # Schema
     # ------------------------------------------------------------------
@@ -221,6 +237,18 @@ class OracleSessionDB:
                         )"""
                     )
 
+                # Mirror oracle_setup.sql so the vector migration's
+                # `UPDATE schema_version` has a row to target even when the
+                # schema is bootstrapped purely through Python.
+                if not self._table_exists(cur, "schema_version"):
+                    cur.execute(
+                        """CREATE TABLE schema_version (
+                            version NUMBER PRIMARY KEY,
+                            applied_at TIMESTAMP DEFAULT SYSTIMESTAMP
+                        )"""
+                    )
+                    cur.execute("INSERT INTO schema_version (version) VALUES (1)")
+
                 for sql in (
                     "CREATE INDEX idx_messages_session ON messages(session_id)",
                     "CREATE INDEX idx_messages_timestamp ON messages(timestamp_val)",
@@ -320,33 +348,24 @@ class OracleSessionDB:
         return self.create_session(session_id=session_id, source=source, **kwargs)
 
     def end_session(self, session_id: str, end_reason: str = "normal") -> None:
-        with self._get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """UPDATE sessions
-                       SET ended_at = :ended_at, end_reason = :end_reason
-                       WHERE id = :id AND ended_at IS NULL""",
-                    {"ended_at": time.time(), "end_reason": end_reason, "id": session_id},
-                )
-            conn.commit()
+        self._exec(
+            """UPDATE sessions
+               SET ended_at = :ended_at, end_reason = :end_reason
+               WHERE id = :id AND ended_at IS NULL""",
+            {"ended_at": time.time(), "end_reason": end_reason, "id": session_id},
+        )
 
     def reopen_session(self, session_id: str) -> None:
-        with self._get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE sessions SET ended_at = NULL, end_reason = NULL WHERE id = :id",
-                    {"id": session_id},
-                )
-            conn.commit()
+        self._exec(
+            "UPDATE sessions SET ended_at = NULL, end_reason = NULL WHERE id = :id",
+            {"id": session_id},
+        )
 
     def update_system_prompt(self, session_id: str, system_prompt: str) -> None:
-        with self._get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE sessions SET system_prompt = :prompt WHERE id = :id",
-                    {"prompt": system_prompt, "id": session_id},
-                )
-            conn.commit()
+        self._exec(
+            "UPDATE sessions SET system_prompt = :prompt WHERE id = :id",
+            {"prompt": system_prompt, "id": session_id},
+        )
 
     def update_session_model_config(
         self,
@@ -1216,17 +1235,14 @@ class OracleSessionDB:
                 return _rows_to_dicts(cur, [row])[0]
 
     def set_meta(self, key: str, value: str) -> None:
-        with self._get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """MERGE INTO state_meta m
-                       USING (SELECT :key AS key FROM dual) src
-                       ON (m.key = src.key)
-                       WHEN MATCHED THEN UPDATE SET value = :value
-                       WHEN NOT MATCHED THEN INSERT (key, value) VALUES (:key, :value)""",
-                    {"key": key, "value": value},
-                )
-            conn.commit()
+        self._exec(
+            """MERGE INTO state_meta m
+               USING (SELECT :key AS key FROM dual) src
+               ON (m.key = src.key)
+               WHEN MATCHED THEN UPDATE SET value = :value
+               WHEN NOT MATCHED THEN INSERT (key, value) VALUES (:key, :value)""",
+            {"key": key, "value": value},
+        )
 
     def prune_empty_ghost_sessions(self, sessions_dir: Optional[Path] = None) -> int:
         return 0
@@ -1245,20 +1261,15 @@ class OracleSessionDB:
     # ------------------------------------------------------------------
 
     def request_handoff(self, session_id: str, platform: str) -> bool:
-        with self._get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """UPDATE sessions
-                       SET handoff_state = 'pending',
-                           handoff_platform = :platform,
-                           handoff_error = NULL
-                       WHERE id = :id
-                         AND (handoff_state IS NULL OR handoff_state IN ('completed', 'failed'))""",
-                    {"platform": platform, "id": session_id},
-                )
-                count = cur.rowcount
-            conn.commit()
-        return count > 0
+        return self._exec_returning_rowcount(
+            """UPDATE sessions
+               SET handoff_state = 'pending',
+                   handoff_platform = :platform,
+                   handoff_error = NULL
+               WHERE id = :id
+                 AND (handoff_state IS NULL OR handoff_state IN ('completed', 'failed'))""",
+            {"platform": platform, "id": session_id},
+        ) > 0
 
     def get_handoff_state(self, session_id: str) -> Optional[Dict[str, Any]]:
         session = self.get_session(session_id)
@@ -1279,33 +1290,22 @@ class OracleSessionDB:
                 return _rows_to_dicts(cur, cur.fetchall())
 
     def claim_handoff(self, session_id: str) -> bool:
-        with self._get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE sessions SET handoff_state = 'running' WHERE id = :id AND handoff_state = 'pending'",
-                    {"id": session_id},
-                )
-                count = cur.rowcount
-            conn.commit()
-        return count > 0
+        return self._exec_returning_rowcount(
+            "UPDATE sessions SET handoff_state = 'running' WHERE id = :id AND handoff_state = 'pending'",
+            {"id": session_id},
+        ) > 0
 
     def complete_handoff(self, session_id: str) -> None:
-        with self._get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE sessions SET handoff_state = 'completed', handoff_error = NULL WHERE id = :id",
-                    {"id": session_id},
-                )
-            conn.commit()
+        self._exec(
+            "UPDATE sessions SET handoff_state = 'completed', handoff_error = NULL WHERE id = :id",
+            {"id": session_id},
+        )
 
     def fail_handoff(self, session_id: str, error: str) -> None:
-        with self._get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE sessions SET handoff_state = 'failed', handoff_error = :error WHERE id = :id",
-                    {"error": (error or "")[:500], "id": session_id},
-                )
-            conn.commit()
+        self._exec(
+            "UPDATE sessions SET handoff_state = 'failed', handoff_error = :error WHERE id = :id",
+            {"error": (error or "")[:500], "id": session_id},
+        )
 
     def apply_telegram_topic_migration(self) -> None:
         return None
@@ -1353,6 +1353,20 @@ class OracleSessionDB:
         except Exception as exc:
             logger.debug("Vector support check failed: %s", exc)
             return False
+
+    @property
+    def vector_search_enabled(self) -> bool:
+        """True if the vector migration is applied and the embedding model is loaded.
+
+        Verifies both that the ``MESSAGES.EMBEDDING`` column exists and that the
+        ``ALL_MINILM_L6_V2`` mining model is available. The result is cached for
+        the lifetime of the connection pool.
+        """
+        cached = getattr(self, "_vector_enabled", None)
+        if cached is None:
+            cached = self._check_vector_support()
+            self._vector_enabled = cached
+        return cached
 
     def embed_message(self, message_id: int, content: str) -> bool:
         if not content or not str(content).strip():

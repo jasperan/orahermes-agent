@@ -23,8 +23,19 @@ logger = logging.getLogger(__name__)
 
 
 def _has_vector_support(db) -> bool:
-    """Check if the session DB supports vector search."""
-    return hasattr(db, "semantic_search") and hasattr(db, "hybrid_search")
+    """Check if the session DB can actually serve vector/hybrid search.
+
+    Requires both the search methods and a database where the vector migration
+    has been applied (embedding column present and the embedding model loaded).
+    """
+    if not (hasattr(db, "semantic_search") and hasattr(db, "hybrid_search")):
+        return False
+    try:
+        return bool(db.vector_search_enabled)
+    except AttributeError:
+        # Older/alternate session DBs without the capability check: assume the
+        # methods are wired and let the query path surface any failure.
+        return True
 
 
 def semantic_recall(
