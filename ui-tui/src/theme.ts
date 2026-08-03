@@ -256,46 +256,43 @@ const cleanPromptSymbol = (s: string | undefined, fallback: string) => {
 
 export const DARK_THEME: Theme = {
   color: {
-    primary: '#FFD700',
-    accent: '#FFBF00',
-    border: '#CD7F32',
-    text: '#FFF8DC',
-    muted: '#CC9B1F',
-    // Bumped from the old `#B8860B` darkgoldenrod (~53% luminance) which
-    // read as barely-visible on dark terminals for long body text.  The
-    // new value sits ~60% luminance — readable without losing the "muted /
-    // secondary" semantic.  Field labels still use `label` (65%) which
-    // stays brighter so hierarchy holds.
-    completionBg: '#1a1a2e',
-    completionCurrentBg: '#333355',
-    completionMetaBg: '#1a1a2e',
-    completionMetaCurrentBg: '#333355',
+    primary: '#89b4fa',
+    accent: '#cba6f7',
+    border: '#45475a',
+    text: '#cdd6f4',
+    muted: '#6c7086',
+    // Catppuccin Mocha palette — cohesive dark-tech premium theme.
+    // 14 approved tokens per tui-design-tokens.md. DARK_THEME is the
+    // canonical dark-mode root; fromSkin() layers skin payloads on top.
+    completionBg: '#181825',
+    completionCurrentBg: '#313244',
+    completionMetaBg: '#181825',
+    completionMetaCurrentBg: '#313244',
 
-    label: '#DAA520',
-    ok: '#4caf50',
-    error: '#ef5350',
-    warn: '#ffa726',
+    label: '#f9e2af',
+    ok: '#a6e3a1',
+    error: '#f38ba8',
+    warn: '#f9e2af',
 
-    prompt: '#FFF8DC',
-    // sessionLabel/sessionBorder intentionally track the `dim` value — they
-    // are "same role, same colour" by design.  fromSkin's banner_dim fallback
-    // relies on this pairing (#11300).
-    sessionLabel: '#CC9B1F',
-    sessionBorder: '#CC9B1F',
+    prompt: '#cdd6f4',
+    // sessionLabel/sessionBorder track `muted` — fromSkin's banner_dim
+    // fallback relies on this pairing (#11300).
+    sessionLabel: '#6c7086',
+    sessionBorder: '#6c7086',
 
-    statusBg: '#1a1a2e',
-    statusFg: '#C0C0C0',
-    statusGood: '#8FBC8F',
-    statusWarn: '#FFD700',
-    statusBad: '#FF8C00',
-    statusCritical: '#FF6B6B',
-    selectionBg: '#3a3a55',
+    statusBg: '#181825',
+    statusFg: '#a6adc8',
+    statusGood: '#a6e3a1',
+    statusWarn: '#f9e2af',
+    statusBad: '#f38ba8',
+    statusCritical: '#f38ba8',
+    selectionBg: '#313244',
 
-    diffAdded: 'rgb(220,255,220)',
-    diffRemoved: 'rgb(255,220,220)',
-    diffAddedWord: 'rgb(36,138,61)',
-    diffRemovedWord: 'rgb(207,34,46)',
-    shellDollar: '#4dabf7'
+    diffAdded: 'rgb(166,227,161)',
+    diffRemoved: 'rgb(243,139,168)',
+    diffAddedWord: 'rgb(166,227,161)',
+    diffRemovedWord: 'rgb(243,139,168)',
+    shellDollar: '#89dceb'
   },
 
   brand: BRAND,
@@ -304,43 +301,43 @@ export const DARK_THEME: Theme = {
   bannerHero: ''
 }
 
-// Light-terminal palette: darker golds/ambers that stay legible on white
-// backgrounds. Same shape as DARK_THEME so `fromSkin` still layers on top
-// cleanly (#11300).
+// Light-terminal palette: Mocha-harmonised dark text on light surfaces.
+// No pure black/white — every value stays inside the design-token family.
+// Same shape as DARK_THEME so `fromSkin` still layers on top cleanly (#11300).
 export const LIGHT_THEME: Theme = {
   color: {
-    primary: '#8B6914',
-    accent: '#A0651C',
-    border: '#7A4F1F',
-    text: '#3D2F13',
-    muted: '#7A5A0F',
-    completionBg: '#F5F5F5',
-    completionCurrentBg: mix('#F5F5F5', '#A0651C', 0.25),
-    completionMetaBg: '#F5F5F5',
-    completionMetaCurrentBg: mix('#F5F5F5', '#A0651C', 0.25),
+    primary: '#1e1e2e',
+    accent: '#45475a',
+    border: '#585b70',
+    text: '#1e1e2e',
+    muted: '#6c7086',
+    completionBg: '#f0f0f5',
+    completionCurrentBg: mix('#f0f0f5', '#45475a', 0.15),
+    completionMetaBg: '#f0f0f5',
+    completionMetaCurrentBg: mix('#f0f0f5', '#45475a', 0.15),
 
-    label: '#7A5A0F',
-    ok: '#2E7D32',
-    error: '#C62828',
-    warn: '#E65100',
+    label: '#313244',
+    ok: '#a6e3a1',
+    error: '#f38ba8',
+    warn: '#f9e2af',
 
-    prompt: '#2B2014',
-    sessionLabel: '#7A5A0F',
-    sessionBorder: '#7A5A0F',
+    prompt: '#1e1e2e',
+    sessionLabel: '#6c7086',
+    sessionBorder: '#6c7086',
 
-    statusBg: '#F5F5F5',
-    statusFg: '#333333',
-    statusGood: '#2E7D32',
-    statusWarn: '#8B6914',
-    statusBad: '#D84315',
-    statusCritical: '#B71C1C',
-    selectionBg: '#D4E4F7',
+    statusBg: '#f0f0f5',
+    statusFg: '#45475a',
+    statusGood: '#a6e3a1',
+    statusWarn: '#f9e2af',
+    statusBad: '#f38ba8',
+    statusCritical: '#f38ba8',
+    selectionBg: '#cdd6f4',
 
-    diffAdded: 'rgb(200,240,200)',
-    diffRemoved: 'rgb(240,200,200)',
-    diffAddedWord: 'rgb(27,94,32)',
-    diffRemovedWord: 'rgb(183,28,28)',
-    shellDollar: '#1565C0'
+    diffAdded: 'rgb(166,227,161)',
+    diffRemoved: 'rgb(243,139,168)',
+    diffAddedWord: 'rgb(166,227,161)',
+    diffRemovedWord: 'rgb(243,139,168)',
+    shellDollar: '#89b4fa'
   },
 
   brand: BRAND,

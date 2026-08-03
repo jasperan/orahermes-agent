@@ -97,11 +97,11 @@ export function highlightLine(line: string, lang: string, t: Theme): Token[] {
     const ch = tok[0]!
 
     if (ch === '"' || ch === "'" || ch === '`') {
-      tokens.push([t.color.accent, tok])
+      tokens.push([t.color.warn, tok])
     } else if (ch >= '0' && ch <= '9') {
-      tokens.push([t.color.text, tok])
+      tokens.push([t.color.ok, tok])
     } else if (spec.keywords.has(tok)) {
-      tokens.push([t.color.border, tok])
+      tokens.push([t.color.accent, tok])
     } else {
       tokens.push(['', tok])
     }

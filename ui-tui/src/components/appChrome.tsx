@@ -18,7 +18,7 @@ import type { Theme } from '../theme.js'
 import type { Msg, Usage } from '../types.js'
 
 const FACE_TICK_MS = 2500
-const HEART_COLORS = ['#ff5fa2', '#ff4d6d']
+const HEART_COLORS = ['#f38ba8', '#cba6f7']
 
 // Keep verb segment width stable so status-bar content to the right doesn't
 // jitter when the ticker rotates between short/long verbs.
