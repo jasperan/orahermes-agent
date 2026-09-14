@@ -76,6 +76,7 @@ import type { PluginManifest } from "@/plugins";
 import { useTheme } from "@/themes";
 import { isDashboardEmbeddedChatEnabled } from "@/lib/dashboard-flags";
 import { api } from "@/lib/api";
+import "./workspace.css";
 
 function RootRedirect() {
   return <Navigate to="/sessions" replace />;
@@ -416,8 +417,9 @@ export default function App() {
   return (
     <div
       data-layout-variant={layoutVariant}
-      className="font-mondwest flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden bg-black uppercase text-midground antialiased"
+      className="hermes-shell flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden bg-black text-midground antialiased"
     >
+      <a href="#workspace-content" className="hermes-skip">Skip to workspace</a>
       <SelectionSwitcher />
       <Backdrop />
       <PluginSlot name="backdrop" />
@@ -584,6 +586,8 @@ export default function App() {
 
           <PageHeaderProvider pluginTabs={pluginTabMeta}>
             <div
+              id="workspace-content"
+              tabIndex={-1}
               className={cn(
                 "relative z-2 flex min-w-0 min-h-0 flex-1 flex-col",
                 "px-3 sm:px-6",

@@ -49,6 +49,7 @@ import { useI18n } from "@/i18n";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { PluginSlot } from "@/plugins";
 import { isDashboardEmbeddedChatEnabled } from "@/lib/dashboard-flags";
+import { SessionOverview } from "@/components/SessionOverview";
 
 const SOURCE_CONFIG: Record<string, { icon: typeof Terminal; color: string }> =
   {
@@ -296,17 +297,16 @@ function SessionRow({
 
   return (
     <div
-      className={`border overflow-hidden transition-colors ${
+      className={`session-row border overflow-hidden transition-colors ${
         session.is_active
           ? "border-success/30 bg-success/[0.03]"
           : "border-border"
       }`}
     >
       <div
-        className="flex items-center justify-between p-3 cursor-pointer hover:bg-secondary/30 transition-colors"
-        onClick={onToggle}
+        className="flex items-center justify-between p-3 hover:bg-secondary/30 transition-colors"
       >
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+        <button type="button" onClick={onToggle} aria-expanded={isExpanded} aria-label={`${isExpanded ? t.common.collapse : t.common.expand}: ${session.title || t.sessions.untitledSession}`} className="flex items-center gap-3 min-w-0 flex-1 text-left">
           <div className={`shrink-0 ${sourceInfo.color}`}>
             <SourceIcon className="h-4 w-4" />
           </div>
@@ -349,7 +349,7 @@ function SessionRow({
             </div>
             {snippet && <SnippetHighlight snippet={snippet} />}
           </div>
-        </div>
+        </button>
 
         <div className="flex items-center gap-2 shrink-0">
           <Badge tone="outline" className="text-[10px]">
@@ -412,6 +412,7 @@ function SessionRow({
 export default function SessionsPage() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [total, setTotal] = useState(0);
+  const [loadError, setLoadError] = useState(false);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 20;
   const [loading, setLoading] = useState(true);
@@ -485,13 +486,14 @@ export default function SessionsPage() {
 
   const loadSessions = useCallback((p: number) => {
     setLoading(true);
+    setLoadError(false);
     api
       .getSessions(PAGE_SIZE, p * PAGE_SIZE)
       .then((resp) => {
         setSessions(resp.sessions);
         setTotal(resp.total);
       })
-      .catch(() => {})
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   }, []);
 
@@ -625,6 +627,8 @@ export default function SessionsPage() {
 
   return (
     <div className="flex flex-col gap-4">
+      <SessionOverview total={loadError ? null : total} loaded={sessions.length} active={sessions.filter(session => session.is_active).length} />
+      {loadError && <div role="alert" className="session-load-error"><span>Session history could not be loaded. Check the dashboard connection.</span><button type="button" onClick={() => loadSessions(page)}>Retry</button></div>}
       <PluginSlot name="sessions:top" />
       <Toast toast={toast} />
 
@@ -781,7 +785,7 @@ export default function SessionsPage() {
         </Card>
       )}
 
-      {filtered.length === 0 ? (
+      {filtered.length === 0 ? (!loadError && (
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
           <Clock className="h-8 w-8 mb-3 opacity-40" />
           <p className="text-sm font-medium">
@@ -793,7 +797,7 @@ export default function SessionsPage() {
             </p>
           )}
         </div>
-      ) : (
+      )) : (
         <>
           <div className="flex flex-col gap-1.5">
             {filtered.map((s) => (

@@ -6,6 +6,21 @@
 
 **Persistent AI Agent powered by Oracle AI Database, Vector Search & OCI GenAI**
 
+## Your agent. Its working memory.
+
+A refined web workspace with readable session history, an at-a-glance session ledger, keyboard-expandable conversations, and explicit load-error recovery. Existing terminal chat and theme selection remain in place.
+
+![OraHermes session workspace](docs/visuals/desktop.jpg)
+
+<details><summary>Session inspection · mobile workspace</summary>
+
+![OraHermes expanded session](docs/visuals/session.jpg)
+<img src="docs/visuals/mobile.jpg" alt="OraHermes mobile session workspace" width="320">
+
+</details>
+
+Actual browser captures with synthetic session records. No live agent, gateway, credentials, or Oracle data was used. [Visual notes and verification limits](docs/visuals/README.md).
+
 <p align="center">
   <a href="https://www.oracle.com/database/free/"><img src="https://img.shields.io/badge/Oracle-26ai_Free-F80000.svg?style=for-the-badge&logo=oracle&logoColor=white" alt="Oracle Database"></a>&nbsp;
   <a href="https://docs.oracle.com/en-us/iaas/Content/generative-ai/home.htm"><img src="https://img.shields.io/badge/OCI-GenAI-F80000.svg?style=for-the-badge&logo=oracle&logoColor=white" alt="OCI GenAI"></a>&nbsp;

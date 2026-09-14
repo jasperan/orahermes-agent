@@ -1,0 +1,194 @@
+.hermes-shell {
+  text-transform: none;
+  font-family: var(--theme-font-sans);
+  font-variant-numeric: tabular-nums;
+}
+.hermes-shell #app-sidebar {
+  border-color: color-mix(in srgb, var(--midground-base) 16%, transparent);
+}
+.hermes-shell #app-sidebar a {
+  min-height: 41px;
+  font-size: 12px;
+  letter-spacing: 0.015em;
+}
+.hermes-shell #app-sidebar a[aria-current="page"] {
+  background: color-mix(in srgb, var(--midground-base) 10%, transparent);
+  border-radius: 4px;
+}
+.hermes-shell .font-mondwest {
+  font-family: var(--theme-font-sans);
+}
+.hermes-shell :focus-visible {
+  outline: 2px solid var(--midground-base);
+  outline-offset: 3px;
+}
+.hermes-shell #workspace-content {
+  min-width: 0;
+}
+.hermes-skip {
+  position: fixed;
+  top: 12px;
+  left: 16px;
+  transform: translateY(-180%);
+  z-index: 70;
+  background: var(--midground-base);
+  color: var(--background-base);
+  padding: 12px;
+  font-size: 13px;
+}
+.hermes-skip:focus {
+  transform: none;
+}
+.session-overview {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 35px;
+  padding: 32px 0 38px;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--midground-base) 20%, transparent);
+  margin-bottom: 8px;
+}
+.session-kicker {
+  font: 9px var(--theme-font-mono);
+  letter-spacing: 2px;
+  opacity: 0.65;
+}
+.session-overview h2 {
+  font-size: clamp(38px, 4.5vw, 62px);
+  line-height: 1.06;
+  letter-spacing: -2px;
+  font-weight: 500;
+  margin: 20px 0;
+}
+.session-overview h2 em {
+  font-family: Georgia, serif;
+  font-weight: 400;
+  opacity: 0.83;
+}
+.session-overview-copy > p:last-child {
+  font-size: 13px;
+  line-height: 1.8;
+  opacity: 0.65;
+}
+.session-ledger {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: center;
+  border-left: 1px solid
+    color-mix(in srgb, var(--midground-base) 20%, transparent);
+  padding-left: 30px;
+}
+.session-ledger > div:first-child {
+  grid-column: 1/-1;
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--midground-base) 20%, transparent);
+}
+.session-ledger dt {
+  font: 9px/1.5 var(--theme-font-mono);
+  letter-spacing: 0.8px;
+  opacity: 0.65;
+}
+.session-ledger dd {
+  font-size: 32px;
+  font-weight: 500;
+  line-height: 1.2;
+  margin-top: 9px;
+  letter-spacing: -1px;
+}
+.session-ledger > div:first-child dd {
+  font-size: 66px;
+  letter-spacing: -3px;
+}
+.session-row {
+  border-radius: 7px;
+  background: color-mix(
+    in srgb,
+    var(--midground-base) 3%,
+    var(--background-base)
+  );
+}
+.session-row > div:first-child {
+  padding: 17px;
+}
+.session-row:hover {
+  border-color: color-mix(in srgb, var(--midground-base) 30%, transparent);
+}
+.session-load-error {
+  padding: 18px;
+  border: 1px solid var(--color-destructive);
+  border-radius: 6px;
+  font-size: 13px;
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  justify-content: space-between;
+}
+.session-load-error button {
+  border: 1px solid currentColor;
+  padding: 8px 14px;
+  border-radius: 4px;
+}
+@media (max-width: 1100px) {
+  .session-overview {
+    gap: 20px;
+  }
+  .session-overview h2 {
+    font-size: 43px;
+  }
+  .session-ledger {
+    padding-left: 22px;
+  }
+}
+@media (max-width: 600px) {
+  .session-overview {
+    grid-template-columns: 1fr;
+    padding-top: 22px;
+    gap: 26px;
+  }
+  .session-overview h2 {
+    font-size: 44px;
+  }
+  .session-ledger {
+    border-left: 0;
+    padding-left: 0;
+    grid-template-columns: 1.2fr 1fr 1fr;
+    border-top: 1px solid
+      color-mix(in srgb, var(--midground-base) 20%, transparent);
+    padding-top: 18px;
+    gap: 12px;
+  }
+  .session-ledger > div:first-child {
+    grid-column: auto;
+    border: 0;
+    padding: 0;
+    margin: 0;
+  }
+  .session-ledger > div:first-child dd,
+  .session-ledger dd {
+    font-size: 32px;
+    letter-spacing: -1px;
+  }
+  .session-ledger dt {
+    font-size: 8px;
+  }
+  .session-row > div:first-child {
+    padding: 11px;
+  }
+  .session-row .text-xs {
+    font-size: 10px;
+  }
+}
+@media (max-width: 600px) {
+  .session-ledger dt {
+    min-height: 25px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hermes-shell *:not(.xterm *) {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}
