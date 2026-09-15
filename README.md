@@ -82,6 +82,7 @@ A fork of [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-age
   - [Cron Scheduler](#cron-scheduler)
   - [Training Data Export](#training-data-export)
   - [Live Dashboard](#live-dashboard)
+  - [Go Terminal UI (`gotui`)](#go-terminal-ui-gotui)
 - [What's Different from Upstream](#whats-different-from-upstream)
 - [Configuration Reference](#configuration-reference)
 - [Testing](#testing)
@@ -434,6 +435,45 @@ ORACLE_DSN=localhost:1521/FREEPDB1 ORACLE_USER=hermes ORACLE_PASSWORD=<password>
 - Content length scatter plot colored by role
 - Recent sessions table with model, message count, and status
 - Live message feed with role-colored entries
+
+---
+
+### Go Terminal UI (`gotui`)
+
+An additional terminal front-end for orahermes-agent, built with
+[Bubble Tea v2](https://charm.land) and `huh`. It is a **peer client of the same
+Python `tui_gateway`** that `hermes --tui` drives — it speaks the identical
+newline-delimited JSON-RPC protocol over stdio, so sessions, tools, model calls
+and slash commands stay in Python and a Go user gets the same results as an Ink
+user.
+
+It adds a third way to run the same agent, alongside the classic
+`prompt_toolkit` CLI and the Ink TUI:
+
+```bash
+cd gotui && go build ./cmd/orahermes-tui
+
+# Full-screen UI: browse stored threads, chat, read status and toolsets
+./orahermes-tui
+
+# Non-interactive, scriptable (no TTY required)
+./orahermes-tui --status
+./orahermes-tui --threads --json
+./orahermes-tui --prompt "summarise today's agent.log errors" --json
+./orahermes-tui --doctor
+
+# Screen-reader / piped access, driven by the same form definitions
+ACCESSIBLE=1 ./orahermes-tui
+```
+
+It covers three surfaces: **conversation** (streaming transcript, composer,
+interrupt, tool-activity line), **thread browsing** (resume a stored session),
+and a **status/doctor readout**. Everything else remains with the gateway, which
+the UI reaches through the composer's slash commands. The palette is read from
+the gateway's announced skin, so switching skins in config restyles this UI too.
+
+See [`gotui/README.md`](gotui/README.md) for flags, architecture and what is
+deliberately out of scope.
 
 ---
 
