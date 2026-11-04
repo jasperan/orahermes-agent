@@ -7,7 +7,7 @@
   border-color: color-mix(in srgb, var(--midground-base) 16%, transparent);
 }
 .hermes-shell #app-sidebar a {
-  min-height: 41px;
+  min-height: 40px;
   font-size: 12px;
   letter-spacing: 0.015em;
 }
@@ -42,15 +42,15 @@
 .session-overview {
   display: grid;
   grid-template-columns: 1.6fr 1fr;
-  gap: 35px;
-  padding: 32px 0 38px;
+  gap: 32px;
+  padding: 32px 0 36px;
   border-bottom: 1px solid
     color-mix(in srgb, var(--midground-base) 20%, transparent);
   margin-bottom: 8px;
 }
 .session-kicker {
-  font: 9px var(--theme-font-mono);
-  letter-spacing: 2px;
+  font: 11px var(--theme-font-mono);
+  letter-spacing: 0.06em;
   opacity: 0.65;
 }
 .session-overview h2 {
@@ -60,10 +60,9 @@
   font-weight: 500;
   margin: 20px 0;
 }
-.session-overview h2 em {
-  font-family: Georgia, serif;
+.session-overview h2 span {
   font-weight: 400;
-  opacity: 0.83;
+  opacity: 0.7;
 }
 .session-overview-copy > p:last-child {
   font-size: 13px;
@@ -76,7 +75,7 @@
   align-content: center;
   border-left: 1px solid
     color-mix(in srgb, var(--midground-base) 20%, transparent);
-  padding-left: 30px;
+  padding-left: 32px;
 }
 .session-ledger > div:first-child {
   grid-column: 1/-1;
@@ -86,23 +85,23 @@
     color-mix(in srgb, var(--midground-base) 20%, transparent);
 }
 .session-ledger dt {
-  font: 9px/1.5 var(--theme-font-mono);
-  letter-spacing: 0.8px;
+  font: 11px/1.5 var(--theme-font-mono);
+  letter-spacing: 0.04em;
   opacity: 0.65;
 }
 .session-ledger dd {
   font-size: 32px;
   font-weight: 500;
   line-height: 1.2;
-  margin-top: 9px;
+  margin-top: 8px;
   letter-spacing: -1px;
 }
 .session-ledger > div:first-child dd {
-  font-size: 66px;
-  letter-spacing: -3px;
+  font-size: 44px;
+  letter-spacing: -2px;
 }
 .session-row {
-  border-radius: 7px;
+  border-radius: 6px;
   background: color-mix(
     in srgb,
     var(--midground-base) 3%,
@@ -110,18 +109,18 @@
   );
 }
 .session-row > div:first-child {
-  padding: 17px;
+  padding: 16px;
 }
 .session-row:hover {
   border-color: color-mix(in srgb, var(--midground-base) 30%, transparent);
 }
 .session-load-error {
-  padding: 18px;
+  padding: 16px;
   border: 1px solid var(--color-destructive);
   border-radius: 6px;
   font-size: 13px;
   display: flex;
-  gap: 15px;
+  gap: 16px;
   align-items: center;
   justify-content: space-between;
 }
@@ -135,17 +134,17 @@
     gap: 20px;
   }
   .session-overview h2 {
-    font-size: 43px;
+    font-size: 44px;
   }
   .session-ledger {
-    padding-left: 22px;
+    padding-left: 24px;
   }
 }
 @media (max-width: 600px) {
   .session-overview {
     grid-template-columns: 1fr;
-    padding-top: 22px;
-    gap: 26px;
+    padding-top: 24px;
+    gap: 24px;
   }
   .session-overview h2 {
     font-size: 44px;
@@ -156,7 +155,7 @@
     grid-template-columns: 1.2fr 1fr 1fr;
     border-top: 1px solid
       color-mix(in srgb, var(--midground-base) 20%, transparent);
-    padding-top: 18px;
+    padding-top: 16px;
     gap: 12px;
   }
   .session-ledger > div:first-child {
@@ -171,18 +170,14 @@
     letter-spacing: -1px;
   }
   .session-ledger dt {
-    font-size: 8px;
+    font-size: 11px;
+    min-height: 24px;
   }
   .session-row > div:first-child {
-    padding: 11px;
+    padding: 12px;
   }
   .session-row .text-xs {
-    font-size: 10px;
-  }
-}
-@media (max-width: 600px) {
-  .session-ledger dt {
-    min-height: 25px;
+    font-size: 11px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

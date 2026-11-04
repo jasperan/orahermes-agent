@@ -15,16 +15,15 @@ export function SessionOverview({
       aria-labelledby="session-overview-title"
     >
       <div className="session-overview-copy">
-        <p className="session-kicker">ORAHERMES / WORKSPACE</p>
+        <p className="session-kicker">Orahermes / Workspace</p>
         <h2 id="session-overview-title">
           Your agent.
           <br />
-          <em>Its working memory.</em>
+          <span>Its working memory.</span>
         </h2>
         <p>
-          Pick up a conversation. Inspect the tools behind it.
-          <br />
-          Keep the context that makes the next step possible.
+          Every session on this machine, newest first. Open one to see the
+          tools it called and the tokens it spent.
         </p>
       </div>
       <dl className="session-ledger">
