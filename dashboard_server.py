@@ -47,11 +47,12 @@ DASHBOARD_KEY = os.getenv("ORAHERMES_DASHBOARD_KEY", "").strip()
 
 
 def _is_loopback_host(host: str) -> bool:
-    return host in {"", "localhost", "127.0.0.1", "::1"}
+    return host in {"localhost", "127.0.0.1", "::1"}
 
 
 def _validate_bind(host: str) -> None:
-    if not _is_loopback_host(host) and not DASHBOARD_KEY:
+    # An empty host string binds INADDR_ANY in HTTPServer, so it is NOT loopback.
+    if not _is_loopback_host((host or "").strip()) and not DASHBOARD_KEY:
         raise RuntimeError(
             "Refusing to bind the legacy Oracle dashboard to a network interface "
             "without ORAHERMES_DASHBOARD_KEY."
